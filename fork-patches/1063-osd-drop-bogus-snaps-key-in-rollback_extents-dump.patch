@@ -1,0 +1,28 @@
+From 5b39a3a3cb0535f8a2488832a5a31f73eb171a84 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Thu, 25 Jun 2026 22:16:53 +0800
+Subject: [PATCH 6/7] osd: drop bogus 'snaps' key in rollback_extents dump
+
+rollback_extents has no snaps; the line re-dumped extents under a
+misleading key.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/osd/osd_types.cc | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/osd/osd_types.cc b/src/osd/osd_types.cc
+index b32d6839d9d..d3e66286f0f 100644
+--- a/src/osd/osd_types.cc
++++ b/src/osd/osd_types.cc
+@@ -4855,7 +4855,6 @@ struct DumpVisitor : public ObjectModDesc::Visitor {
+     f->dump_unsigned("object_size", object_size);
+     f->dump_stream("extents") << extents;
+     f->dump_stream("shards") << shards;
+-    f->dump_stream("snaps") << extents;
+     f->close_section();
+   }
+ };
+-- 
+2.54.0
+

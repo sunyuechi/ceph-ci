@@ -1,0 +1,31 @@
+From 6a90200c774d7b44be9fb6e68da2c4a3c59d540d Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Thu, 25 Jun 2026 21:39:11 +0800
+Subject: [PATCH 1/6] osd/ECBackend: fix iterator invalidation in omap_get
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/osd/ECBackend.cc | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/osd/ECBackend.cc b/src/osd/ECBackend.cc
+index d12ab9d8fc5..1ba5bce4443 100644
+--- a/src/osd/ECBackend.cc
++++ b/src/osd/ECBackend.cc
+@@ -1796,9 +1796,11 @@ int ECBackend::omap_get(
+   }
+ 
+   // Remove keys in removed_ranges
+-  for (auto out_it = out->begin(); out_it != out->end(); ++out_it) {
++  for (auto out_it = out->begin(); out_it != out->end(); ) {
+     if (should_be_removed(removed_ranges, out_it->first)) {
+-      out->erase(out_it->first);
++      out_it = out->erase(out_it);
++    } else {
++      ++out_it;
+     }
+   }
+ 
+-- 
+2.54.0
+

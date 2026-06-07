@@ -1,0 +1,30 @@
+From 832d6122e98cdff77e2ab2831c2f1c92ea74274d Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 29 Jun 2026 20:50:20 -0700
+Subject: [PATCH] blk/aio: fix mismatched parenthesis in POSIX AIO submit path
+
+The condition `if ((cur->n_aiocb == 1) {` has an unbalanced
+parenthesis and fails to compile. This code is only built on the
+HAVE_POSIXAIO (BSD) path, so the breakage is normally hidden.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/blk/aio/aio.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/blk/aio/aio.cc b/src/blk/aio/aio.cc
+index 6ade779b4c1..eeb93fbc87a 100644
+--- a/src/blk/aio/aio.cc
++++ b/src/blk/aio/aio.cc
+@@ -48,7 +48,7 @@ int aio_queue_t::submit_batch(aio_iter begin, aio_iter end,
+     }
+ #elif defined(HAVE_POSIXAIO)
+     cur->priv = priv;
+-    if ((cur->n_aiocb == 1) {
++    if (cur->n_aiocb == 1) {
+       // TODO: consider batching multiple reads together with lio_listio
+       cur->aio.aiocb.aio_sigevent.sigev_notify = SIGEV_KEVENT;
+       cur->aio.aiocb.aio_sigevent.sigev_notify_kqueue = ctx;
+-- 
+2.54.0
+

@@ -1,0 +1,35 @@
+From 18fa4ce58be87c6d8511f4e336fad7a5845c59d2 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 29 Jun 2026 19:36:42 -0700
+Subject: [PATCH 2/3] rgw/posix: fix inverted If-None-Match check allowing
+ overwrite
+
+If-None-Match: * means "proceed only if the object does not exist" and
+is used to prevent overwriting an existing object. The posix handler
+returned PRECONDITION_FAILED when the object did not exist and allowed
+the write when it did, inverting the semantics and disabling overwrite
+protection.
+
+Return PRECONDITION_FAILED when the object exists.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/rgw/driver/posix/rgw_sal_posix.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/rgw/driver/posix/rgw_sal_posix.cc b/src/rgw/driver/posix/rgw_sal_posix.cc
+index 92710d01669..ab3310f9596 100644
+--- a/src/rgw/driver/posix/rgw_sal_posix.cc
++++ b/src/rgw/driver/posix/rgw_sal_posix.cc
+@@ -4577,7 +4577,7 @@ int POSIXAtomicWriter::complete(size_t accounted_size, const std::string& etag,
+   if (if_nomatch) {
+     if (strcmp(if_nomatch, "*") == 0) {
+       // test the object is not existing
+-      if (!exists) {
++      if (exists) {
+ 	return -ERR_PRECONDITION_FAILED;
+       }
+     } else {
+-- 
+2.54.0
+

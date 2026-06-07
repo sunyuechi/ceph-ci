@@ -1,0 +1,35 @@
+From feffdffb8ef265e3416f2f6e4f0630d4fa5b33bd Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Sat, 13 Jun 2026 19:24:50 +0800
+Subject: [PATCH] crimson/test: shrink messenger-thrash max_message_len to 1MB
+
+The test keeps random_num payload buffers (each up to max_message_len)
+resident and sends copies concurrently; at 4MB the peak working set
+runs ~600MB and overflows the test's 256M --memory arena with bad_alloc.
+
+--memory only binds when seastar's own allocator is compiled in
+(RelWithDebInfo/Release); Debug/Sanitize define
+SEASTAR_DEFAULT_ALLOCATOR and use the heap, so the limit never bites
+there.
+
+Shrink max_message_len to 1MB, cutting the peak below 160MB so it fits
+the 256M arena instead of enlarging it.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/test/crimson/test_messenger_thrash.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/test/crimson/test_messenger_thrash.cc b/src/test/crimson/test_messenger_thrash.cc
+index ebc4a383ab287..1274db22cdccd 100644
+--- a/src/test/crimson/test_messenger_thrash.cc
++++ b/src/test/crimson/test_messenger_thrash.cc
+@@ -244,7 +244,7 @@ class SyntheticWorkload {
+    const unsigned min_connections = 10;
+    const unsigned max_in_flight = 64;
+    const unsigned max_connections = 128;
+-   const unsigned max_message_len = 1024 * 1024 * 4;
++   const unsigned max_message_len = 1024 * 1024;
+    const uint64_t  servers, clients;
+ 
+    SyntheticWorkload(int servers, int clients, int random_num,

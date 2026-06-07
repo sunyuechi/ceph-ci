@@ -1,0 +1,26 @@
+From 300cb4597ab45c5747176c48f52f2d52db964810 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Thu, 25 Jun 2026 21:39:12 +0800
+Subject: [PATCH 6/6] osd/scrubber: send real reservation nonce in scrub grant
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/osd/scrubber/scrub_machine.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/osd/scrubber/scrub_machine.cc b/src/osd/scrubber/scrub_machine.cc
+index 9f9c50d7289..81d5b7507fa 100644
+--- a/src/osd/scrubber/scrub_machine.cc
++++ b/src/osd/scrubber/scrub_machine.cc
+@@ -902,7 +902,7 @@ sc::result ReplicaActive::react(const ReserverGranted& ev)
+   // notify the primary
+   auto grant_msg = make_message<MOSDScrubReserve>(
+       spg_t(pg_id.pgid, m_pg->get_primary().shard), reservation.request_epoch,
+-      MOSDScrubReserve::GRANT, m_pg->pg_whoami, pending_reservation_nonce);
++      MOSDScrubReserve::GRANT, m_pg->pg_whoami, reservation.nonce);
+   m_pg->send_cluster_message(
+       m_pg->get_primary().osd, grant_msg, reservation.request_epoch, false);
+   return discard_event();
+-- 
+2.54.0
+

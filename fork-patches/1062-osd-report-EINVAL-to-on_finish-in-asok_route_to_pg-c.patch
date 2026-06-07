@@ -1,0 +1,30 @@
+From f842a3f65856e9eb658873c2bc99cda835dd40c9 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Thu, 25 Jun 2026 22:16:45 +0800
+Subject: [PATCH 5/7] osd: report -EINVAL to on_finish in asok_route_to_pg
+ catch
+
+The handler passed the stale locate result (0) while returning -EINVAL,
+so callers saw success on a bad_cmd_get failure.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/osd/OSD.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/osd/OSD.cc b/src/osd/OSD.cc
+index 328d82a0a91..9ad1d5d0a5b 100644
+--- a/src/osd/OSD.cc
++++ b/src/osd/OSD.cc
+@@ -2760,7 +2760,7 @@ int OSD::asok_route_to_pg(
+   } catch (const TOPNSPC::common::bad_cmd_get& e) {
+     (*target_pg)->unlock();
+     ss << e.what();
+-    on_finish(ret, ss.str(), outbl);
++    on_finish(-EINVAL, ss.str(), outbl);
+     return -EINVAL;
+   }
+ }
+-- 
+2.54.0
+

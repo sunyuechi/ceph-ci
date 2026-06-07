@@ -1,0 +1,32 @@
+From ae23ed1db23b2472e2b08fab8d1df74a38d666b0 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Thu, 25 Jun 2026 21:39:11 +0800
+Subject: [PATCH 5/6] osd/ECUtil: fix offset accumulation in slice_map
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/osd/ECUtil.cc | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/osd/ECUtil.cc b/src/osd/ECUtil.cc
+index 68ae458331a..b7286b950cb 100644
+--- a/src/osd/ECUtil.cc
++++ b/src/osd/ECUtil.cc
+@@ -811,11 +811,11 @@ shard_extent_map_t shard_extent_map_t::slice_map(
+ 
+     if (!iemap.empty()) {
+       slice.start_offset = min(slice.start_offset, iemap.get_start_off());
+-      slice.end_offset = max(slice.start_offset, iemap.get_end_off());
+-      slice.ro_start = min(slice.start_offset,
++      slice.end_offset = max(slice.end_offset, iemap.get_end_off());
++      slice.ro_start = min(slice.ro_start,
+                            calc_ro_offset(sinfo->get_raw_shard(shard),
+                                           iemap.get_start_off()));
+-      slice.ro_end = min(slice.ro_end,
++      slice.ro_end = max(slice.ro_end,
+                          calc_ro_end(sinfo->get_raw_shard(shard),
+                                      iemap.get_end_off()));
+       slice.extent_maps.emplace(shard, iemap);
+-- 
+2.54.0
+

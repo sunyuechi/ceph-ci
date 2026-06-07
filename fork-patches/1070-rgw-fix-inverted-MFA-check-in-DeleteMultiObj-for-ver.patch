@@ -1,0 +1,36 @@
+From 3a39d4c14896806ce5b406f19c45fb0848d436f9 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 29 Jun 2026 19:36:18 -0700
+Subject: [PATCH 1/3] rgw: fix inverted MFA check in DeleteMultiObj for
+ versioned objects
+
+The MFA-delete guard in RGWDeleteMultiObj::execute() flagged a request
+as targeting a versioned object when the version-id was empty, which is
+exactly backwards: a non-empty version-id denotes a versioned delete and
+is what S3 MFA-Delete must protect.
+
+As written, a delete carrying a version-id bypassed the MFA check while a
+plain delete spuriously required MFA. Test instance.empty() with the
+correct sense so versioned deletes require MFA verification.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/rgw/rgw_op.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/rgw/rgw_op.cc b/src/rgw/rgw_op.cc
+index bfcb0ea6df1..43c2fc30963 100644
+--- a/src/rgw/rgw_op.cc
++++ b/src/rgw/rgw_op.cc
+@@ -8358,7 +8358,7 @@ void RGWDeleteMultiObj::execute(optional_yield y)
+     bool has_versioned = false;
+     for (auto object : multi_delete->objects) {
+       const string& instance = object.get_version_id();
+-      if (instance.empty()) {
++      if (!instance.empty()) {
+         has_versioned = true;
+         break;
+       }
+-- 
+2.54.0
+

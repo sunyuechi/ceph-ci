@@ -1,0 +1,39 @@
+From ee9ee7016d397ee517d314e88beef90855e680d1 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Tue, 16 Jun 2026 04:10:15 +0800
+Subject: [PATCH 4/6] crimson/cmake: restrict -Wno-non-virtual-dtor to C++
+ sources
+
+The seastar target exports -Wno-non-virtual-dtor as a PUBLIC compile
+option, so it leaks to every target that links seastar, including C
+sources such as crimson-common's reverse.c, producing:
+
+  cc1: warning: command-line option '-Wno-non-virtual-dtor' is valid for C++/ObjC++ but not for C
+
+Guard the option with $<COMPILE_LANGUAGE:CXX> so that it only applies to
+C++ compilations.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/CMakeLists.txt | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index a93a38d7501..af57632bc3e 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -501,8 +501,9 @@ if(WITH_CRIMSON)
+   file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/seastar/gen/src")
+   target_compile_options(seastar
+   PUBLIC
+-    # required by any target that links to seastar
+-    "-Wno-non-virtual-dtor"
++    # required by any target that links to seastar; restrict to C++ since this
++    # warning is not valid for C sources (e.g. crimson-common's reverse.c)
++    "$<$<COMPILE_LANGUAGE:CXX>:-Wno-non-virtual-dtor>"
+   PRIVATE
+     "-DSEASTAR_NO_EXCEPTION_HACK"
+     "-Wno-error"
+-- 
+2.54.0
+

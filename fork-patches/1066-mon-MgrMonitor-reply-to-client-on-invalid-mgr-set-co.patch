@@ -1,0 +1,64 @@
+From 001af3667223a5e43eba5cc2d08ae163878924ca Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 29 Jun 2026 18:13:20 -0700
+Subject: [PATCH] mon/MgrMonitor: reply to client on invalid 'mgr set' command
+
+prepare_command() returns bool; true means the reply was already sent.
+The 'mgr set' error paths did 'return -EINVAL;', which is non-zero and
+so converts to true -- the command looked handled but no reply went
+out, and the client hung.
+
+Route these errors through 'out:' (r = <err>; goto out;) instead.  Also
+rename the parse_bool() result in the 'down' branch; it shadowed the
+outer 'r'.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/mon/MgrMonitor.cc | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/src/mon/MgrMonitor.cc b/src/mon/MgrMonitor.cc
+index 925121c216b..50ba6ee6df6 100644
+--- a/src/mon/MgrMonitor.cc
++++ b/src/mon/MgrMonitor.cc
+@@ -1204,18 +1204,21 @@ bool MgrMonitor::prepare_command(MonOpRequestRef op)
+     std::string var;
+     if (!cmd_getval(cmdmap, "var", var) || var.empty()) {
+       ss << "Invalid variable";
+-      return -EINVAL;
++      r = -EINVAL;
++      goto out;
+     }
+     string val;
+     if (!cmd_getval(cmdmap, "val", val)) {
+-      return -EINVAL;
++      r = -EINVAL;
++      goto out;
+     }
+ 
+     if (var == "down") {
+       bool enable_down = false;
+-      int r = parse_bool(val, &enable_down, ss);
+-      if (r != 0) {
+-        return r;
++      int ret = parse_bool(val, &enable_down, ss);
++      if (ret != 0) {
++        r = ret;
++        goto out;
+       }
+       if (enable_down) {
+         bool has_active = !!pending_map.active_gid;
+@@ -1234,7 +1237,9 @@ bool MgrMonitor::prepare_command(MonOpRequestRef op)
+         }
+       }
+     } else {
+-      return -EINVAL;
++      ss << "Unknown variable '" << var << "'";
++      r = -EINVAL;
++      goto out;
+     }
+   } else if (prefix == "mgr fail") {
+     string who;
+-- 
+2.54.0
+

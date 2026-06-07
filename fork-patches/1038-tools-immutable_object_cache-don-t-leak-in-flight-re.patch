@@ -1,0 +1,48 @@
+From c1b803b9fdeb4c1f4f5b21a75cc5a8bf3f415ab8 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Sun, 21 Jun 2026 16:42:54 +0800
+Subject: [PATCH 4/6] tools/immutable_object_cache: don't leak in-flight
+ replies on teardown
+
+CacheSession::send() deletes the reply in the async_write completion
+handler body. If the session is torn down with the write still in flight,
+asio destroys the abandoned handler without running it, so the reply (and
+its encoded payload) leaks -- LeakSanitizer flags it. Own the reply through
+a shared_ptr so it is freed when the handler is destroyed, run or not.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/tools/immutable_object_cache/CacheSession.cc | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/src/tools/immutable_object_cache/CacheSession.cc b/src/tools/immutable_object_cache/CacheSession.cc
+index e6adaead161..f85d2e53f1a 100644
+--- a/src/tools/immutable_object_cache/CacheSession.cc
++++ b/src/tools/immutable_object_cache/CacheSession.cc
+@@ -119,16 +119,19 @@ void CacheSession::process(ObjectCacheRequest* req) {
+ 
+ void CacheSession::send(ObjectCacheRequest* reply) {
+   ldout(m_cct, 20) << dendl;
++  // Own reply through the handler so it is freed when the handler is destroyed,
++  // not only when it runs: on teardown asio destroys the abandoned handler
++  // without invoking it, which would otherwise leak the reply.
++  auto reply_ptr = std::shared_ptr<ObjectCacheRequest>(reply);
+   bufferlist bl;
+-  reply->encode();
+-  bl.append(reply->get_payload_bufferlist());
++  reply_ptr->encode();
++  bl.append(reply_ptr->get_payload_bufferlist());
+ 
+   boost::asio::async_write(m_dm_socket,
+         boost::asio::buffer(bl.c_str(), bl.length()),
+         boost::asio::transfer_exactly(bl.length()),
+-        [this, bl, reply](const boost::system::error_code& err,
++        [this, bl, reply_ptr](const boost::system::error_code& err,
+           size_t bytes_transferred) {
+-          delete reply;
+           if (err || bytes_transferred != bl.length()) {
+             fault(err);
+             return;
+-- 
+2.54.0
+

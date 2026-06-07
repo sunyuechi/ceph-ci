@@ -1,0 +1,43 @@
+From 218a05ed1af8500ea3653d5c54b3b2fcbf364b8b Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Thu, 25 Jun 2026 22:15:46 +0800
+Subject: [PATCH 2/7] osd: fix osd_reqid_t comparison strict weak ordering
+
+The 'l.inc < r.inc' term lacked an 'l.name == r.name' guard, breaking
+antisymmetry; affects ordered containers (e.g. ECInject).
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/osd/osd_types.h | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/src/osd/osd_types.h b/src/osd/osd_types.h
+index 1065066948e..977af60bed3 100644
+--- a/src/osd/osd_types.h
++++ b/src/osd/osd_types.h
+@@ -28,6 +28,7 @@
+ #include <set>
+ #include <string>
+ #include <string_view>
++#include <tuple>
+ #include <variant>
+ 
+ #ifdef WITH_CRIMSON
+@@ -240,12 +241,10 @@ inline bool operator!=(const osd_reqid_t& l, const osd_reqid_t& r) {
+   return (l.name != r.name) || (l.inc != r.inc) || (l.tid != r.tid);
+ }
+ inline bool operator<(const osd_reqid_t& l, const osd_reqid_t& r) {
+-  return (l.name < r.name) || (l.inc < r.inc) || 
+-    (l.name == r.name && l.inc == r.inc && l.tid < r.tid);
++  return std::tie(l.name, l.inc, l.tid) < std::tie(r.name, r.inc, r.tid);
+ }
+ inline bool operator<=(const osd_reqid_t& l, const osd_reqid_t& r) {
+-  return (l.name < r.name) || (l.inc < r.inc) ||
+-    (l.name == r.name && l.inc == r.inc && l.tid <= r.tid);
++  return std::tie(l.name, l.inc, l.tid) <= std::tie(r.name, r.inc, r.tid);
+ }
+ inline bool operator>(const osd_reqid_t& l, const osd_reqid_t& r) { return !(l <= r); }
+ inline bool operator>=(const osd_reqid_t& l, const osd_reqid_t& r) { return !(l < r); }
+-- 
+2.54.0
+

@@ -1,0 +1,33 @@
+From 975a87a1314138a7fb6ea96bf7e6133d47408be4 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 29 Jun 2026 19:36:49 -0700
+Subject: [PATCH 3/3] rgw/sts: fix inverted tokenCode length validation
+
+AssumeRoleRequest::validate_input() rejected a tokenCode whose length
+equaled TOKEN_CODE_SIZE and accepted any other length, the opposite of
+the intended check. A valid 6-digit MFA token was refused with EINVAL
+while a wrong-length token passed.
+
+Compare with != so only an incorrect length is rejected.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/rgw/rgw_sts.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/rgw/rgw_sts.cc b/src/rgw/rgw_sts.cc
+index 357a153e222..ebf0d5140ba 100644
+--- a/src/rgw/rgw_sts.cc
++++ b/src/rgw/rgw_sts.cc
+@@ -282,7 +282,7 @@ int AssumeRoleRequest::validate_input(const DoutPrefixProvider *dpp) const
+       return -EINVAL;
+     }
+   }
+-  if (! tokenCode.empty() && tokenCode.size() == TOKEN_CODE_SIZE) {
++  if (! tokenCode.empty() && tokenCode.size() != TOKEN_CODE_SIZE) {
+     ldpp_dout(dpp, 0) << "Either token code is empty or token code size is invalid: " << tokenCode.size() << dendl;
+     return -EINVAL;
+   }
+-- 
+2.54.0
+
