@@ -1,0 +1,26 @@
+From 852aaf9ece1895f58c880ea76e220c9f36a86506 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Sat, 13 Jun 2026 19:24:50 +0800
+Subject: [PATCH] crimson/test: bump messenger-thrash seastar memory to 1024M
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/test/crimson/CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/test/crimson/CMakeLists.txt b/src/test/crimson/CMakeLists.txt
+index 8a8c82ae5e7..c7bb32651a5 100644
+--- a/src/test/crimson/CMakeLists.txt
++++ b/src/test/crimson/CMakeLists.txt
+@@ -93,7 +93,7 @@ target_link_libraries(
+ 
+ add_executable(unittest-seastar-messenger-thrash test_messenger_thrash.cc)
+ add_ceph_unittest(unittest-seastar-messenger-thrash
+-  --memory 256M --smp 1)
++  --memory 1024M --smp 1)
+ target_link_libraries(unittest-seastar-messenger-thrash crimson)
+ 
+ add_subdirectory(seastore)
+-- 
+2.54.0
+

@@ -1,0 +1,40 @@
+From 5ee62684a2e5da53d92e17c7383d815268498ff7 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Fri, 12 Jun 2026 17:06:17 +0800
+Subject: [PATCH] qa/standalone: pin mclock IOPS capacity for file-backed OSDs
+
+File-backed OSDs are reported as rotational, so the osd bench result
+at startup is rejected against the HDD threshold and client IO can
+stall for tens of seconds on fast disks.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ qa/standalone/ceph-helpers.sh | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/qa/standalone/ceph-helpers.sh b/qa/standalone/ceph-helpers.sh
+index 2f5a15bff17..b775b47cffd 100755
+--- a/qa/standalone/ceph-helpers.sh
++++ b/qa/standalone/ceph-helpers.sh
+@@ -647,6 +647,9 @@ function run_osd() {
+     ceph_args+=" --osd-max-object-namespace-len=64"
+     ceph_args+=" --enable-experimental-unrecoverable-data-corrupting-features=*"
+     ceph_args+=" --osd-mclock-profile=high_recovery_ops"
++    # File-backed OSDs look rotational and get the conservative HDD
++    # capacity default, stalling client IO on fast disks.
++    ceph_args+=" --osd-mclock-max-capacity-iops-hdd=10000"
+     ceph_args+=" "
+     ceph_args+="$@"
+     mkdir -p $osd_data
+@@ -958,6 +961,8 @@ function activate_osd() {
+     ceph_args+=" --osd-max-object-namespace-len=64"
+     ceph_args+=" --enable-experimental-unrecoverable-data-corrupting-features=*"
+     ceph_args+=" --osd-mclock-profile=high_recovery_ops"
++    # See run_osd.
++    ceph_args+=" --osd-mclock-max-capacity-iops-hdd=10000"
+     ceph_args+=" "
+     ceph_args+="$@"
+     mkdir -p $osd_data
+-- 
+2.54.0
+

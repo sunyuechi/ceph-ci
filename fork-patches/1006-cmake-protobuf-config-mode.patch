@@ -1,0 +1,44 @@
+From 28b0f7291680f72738becf0ba9948acc5eab24de Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Fri, 12 Jun 2026 18:17:26 +0800
+Subject: [PATCH] cmake: find Protobuf via cmake config before module mode
+
+With protobuf 6.x the cmake config export set gained upb targets.
+Module-mode FindProtobuf defines only the four classic targets, so
+gRPCConfig.cmake's config-mode find_dependency(Protobuf) then fails
+with "Some (but not all) targets in this export set were already
+defined". Prefer config mode so the full target set comes from one
+place; fall back to module mode for distros without protobuf cmake
+config files.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/CMakeLists.txt | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index a93a38d7501..8c8b203a1d2 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -1024,9 +1024,15 @@ option(WITH_NVMEOF_GATEWAY_MONITOR_CLIENT "build nvmeof gateway monitor client"
+ if(WITH_NVMEOF_GATEWAY_MONITOR_CLIENT)
+ 
+   # Find Protobuf installation
+-  # Looks for protobuf-config.cmake file installed by Protobuf's cmake installation.
+-  option(protobuf_MODULE_COMPATIBLE TRUE)
+-  find_package(Protobuf REQUIRED)
++  # Prefer protobuf's cmake config: it defines the complete export set
++  # (protobuf 6.x adds upb targets), so gRPCConfig.cmake's config-mode
++  # find_dependency(Protobuf) won't fail on the partial target set left
++  # by module-mode FindProtobuf. Fall back to module mode for distros
++  # that don't ship protobuf cmake config files.
++  find_package(Protobuf CONFIG)
++  if(NOT Protobuf_FOUND)
++    find_package(Protobuf REQUIRED)
++  endif()
+ 
+   set(_REFLECTION grpc++_reflection)
+   if(CMAKE_CROSSCOMPILING)
+-- 
+2.54.0
+

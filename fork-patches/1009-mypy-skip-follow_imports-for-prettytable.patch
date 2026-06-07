@@ -1,0 +1,44 @@
+From 76b1091b0cefa664758b27370bfc6df4f73a8fb4 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Sun, 7 Jun 2026 22:19:08 +0800
+Subject: [PATCH] mypy: skip follow_imports for prettytable
+
+With test venvs on system site-packages, mypy picks up the system
+prettytable (3.4.0+, typed). It flags mgr's add_row(tuple) against the
+list[Any] signature (src/mypy.ini) and qa's float_format = str against
+the dict[str, str] property (qa/mypy.ini). Skip follow_imports in both.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ qa/mypy.ini  | 6 +++++-
+ src/mypy.ini | 1 +
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/qa/mypy.ini b/qa/mypy.ini
+index 1215375ed9b..3d88b720b94 100644
+--- a/qa/mypy.ini
++++ b/qa/mypy.ini
+@@ -1,2 +1,6 @@
+ [mypy]
+-ignore_missing_imports = True
+\ No newline at end of file
++ignore_missing_imports = True
++
++[mypy-prettytable]
++ignore_missing_imports = True
++follow_imports = skip
+diff --git a/src/mypy.ini b/src/mypy.ini
+index 9fe2f82a535..579644374c5 100755
+--- a/src/mypy.ini
++++ b/src/mypy.ini
+@@ -36,6 +36,7 @@ ignore_missing_imports = True
+ 
+ [mypy-prettytable]
+ ignore_missing_imports = True
++follow_imports = skip
+ 
+ [mypy-jsonpatch]
+ ignore_missing_imports = True
+-- 
+2.54.0
+

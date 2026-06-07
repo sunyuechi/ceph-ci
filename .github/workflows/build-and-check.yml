@@ -1,0 +1,81 @@
+# L2: build ceph main + run ctest inside an openRuyi container on a riscv64 self-hosted runner.
+name: build-and-check
+
+on:
+  workflow_dispatch:
+    inputs:
+      ceph_ref:
+        description: "ceph branch/tag/sha to test"
+        default: main
+      incremental:
+        description: "Reuse existing build/ (incremental; skips the full recompile)"
+        type: boolean
+        default: false
+      rebuild_deps:
+        description: "Rebuild the deps image (reinstall BuildRequires; picks up openRuyi package updates)"
+        type: boolean
+        default: false
+      use_temp_obs:
+        description: "Prefer deps from the temporary OBS project home:sunyuechi:openruyi-test (untick = stock openRuyi repos only)"
+        type: boolean
+        default: true
+      offline:
+        description: "Skip the registry image pull; reuse the cached local image (use when the registry is down)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-and-check
+  cancel-in-progress: true
+
+jobs:
+  l2:
+    runs-on: [self-hosted, linux, riscv64]
+    timeout-minutes: 1440   # first cold build can take 6-10h on SG2044
+    env:
+      CEPH_REF: ${{ inputs.ceph_ref || 'main' }}
+      # Set to "1" only when the web "Run workflow" form ticks incremental, so the
+      # script reuses the persisted build/ instead of rm -rf'ing it.
+      BUILD_INCREMENTAL: ${{ inputs.incremental && '1' || '' }}
+      # Set to "1" when the form ticks rebuild_deps, so the script drops the cached
+      # build image and reinstalls BuildRequires (picks up rolling openRuyi updates).
+      REBUILD_DEPS: ${{ inputs.rebuild_deps && '1' || '' }}
+      # Ticked (default): deps prefer the temporary OBS project (patch 2005,
+      # repo priority=1). Unticked: stock openRuyi repos only. Toggling rebuilds
+      # the deps image automatically via the script's image fingerprint.
+      TEMP_OBS_REPO: ${{ inputs.use_temp_obs && '1' || '0' }}
+      # Set to "1" when the form ticks offline, so fetch-openruyi-image.sh reuses
+      # the existing local image instead of pulling (registry down / 502).
+      OFFLINE: ${{ inputs.offline && '1' || '0' }}
+      # GIT_PROXY left UNSET so the script auto-probes the proxy
+      # (CI_PROXY_PROBE default http://10.200.1.1:8888) and uses it; defining it
+      # (even to "" via an absent secret) skips the probe -> direct.
+      # Fixed path outside the runner's own workspace (github-act-runner wipes
+      # ~/.cache/act/<hash> after each job), so the ceph clone and ci-log archive
+      # persist across runs: clone is refetched to CEPH_REF, not re-cloned.
+      WORKDIR: /root/syc-test/ruyi-ci-test
+    steps:
+      - name: Checkout ceph-ci
+        uses: actions/checkout@v4
+
+      - name: Run L2 (build + ctest) in openRuyi container
+        run: ./scripts/run-build-check.sh
+
+      # Copy the wanted files out of WORKDIR into the checkout, where
+      # upload-artifact can pick them up via a relative path.
+      - name: Stage artifacts
+        if: always()
+        run: |
+          mkdir -p artifacts
+          cp -L "$WORKDIR/run.log" artifacts/ 2>/dev/null || true
+          cp "$WORKDIR"/ceph/build/Testing/Temporary/LastTest.log* artifacts/ 2>/dev/null || true
+          cp "$WORKDIR"/ceph/build/CMakeCache.txt artifacts/ 2>/dev/null || true
+          cp "$WORKDIR"/ceph/build/core* artifacts/ 2>/dev/null || true
+
+      - name: Collect logs + artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2-artifacts
+          if-no-files-found: ignore
+          path: artifacts/
