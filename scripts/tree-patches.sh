@@ -20,11 +20,7 @@ TREE_PATCHES=(
 	# https://github.com/ceph/ceph/pull/69316
     1008-tests-venv-system-site-packages.patch
     1009-mypy-skip-follow_imports-for-prettytable.patch
-    # TODO: not submitted yet; file-backed OSDs look rotational, HDD mclock cap stalls standalone tests
-    1010-qa-standalone-pin-mclock-iops-capacity.patch
-    # TODO: not submitted yet; companion to 1010 (same PR), bench client startup can exceed 20s under -j contention
-    1011-test-smoke-rados-bench-timeout.patch
-    # TODO: not submitted yet; 1024M measured stable (256M 0/8, 512M 3/5, 1024M 5/5)
+	# https://github.com/ceph/ceph/pull/69455
     1012-test-crimson-messenger-thrash-bump-memory.patch
     # -- 2xxx: openRuyi downstream, not for upstream --
     # bump pylint 2.6.0 -> 2.17.7 for py3.13 / wrapt compat

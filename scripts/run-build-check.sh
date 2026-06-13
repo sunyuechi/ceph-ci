@@ -319,6 +319,21 @@ declare -a BUILD_TUNE_ARGS=(
     --extra="-eSCCACHE_IDLE_TIMEOUT=0"
 )
 
+# 3h. standalone test data on tmpfs. qa/standalone tests (smoke.sh, osd-*, mon-*)
+#     run file-backed BlueStore OSDs whose block file sits under build/td; on this
+#     host that path is NVMe ext4 via the bind-mount, where O_DIRECT/libaio write
+#     completion intermittently stalls for minutes -> PGs stuck activating ->
+#     wait_for_clean / rados bench hang (smoke.sh's internal `timeout` trips first).
+#     Mapping build/td to tmpfs removes the stall. /dev/shm is RAM/2; a td is well
+#     under that, and overflow is tmpfs ENOSPC (a test failure), not host OOM.
+#     /ceph/build/td assumes bwc's default --homedir=/ceph. STEPS (ctest) run only.
+TD_TMPFS_DIR="${TD_TMPFS_DIR:-/dev/shm/ceph-ci-td}"
+rm -rf "${TD_TMPFS_DIR}"; mkdir -p "${TD_TMPFS_DIR}"
+echo "  standalone td on tmpfs: ${TD_TMPFS_DIR} -> /ceph/build/td"
+declare -a TD_TMPFS_ARGS=(
+    --extra="--volume=${TD_TMPFS_DIR}:/ceph/build/td:Z"
+)
+
 # 4a. Container networking for proxied hosts (only when GIT_PROXY set). The proxy is a
 #     routable IP, so both the bwc image-build and run containers reach it over the
 #     default bridge net -- no host net needed. Export *_proxy for the image build
@@ -396,6 +411,7 @@ python3 src/script/build-with-container.py \
     --container-engine "${ENGINE}" \
     "${NET_ARGS[@]}" \
     "${BUILD_TUNE_ARGS[@]}" \
+    "${TD_TMPFS_ARGS[@]}" \
     --extra="-eCHECK_MAKEOPTS=${CHECK_MAKEOPTS}" \
     --extra="-eCONFIGURE_ARGS=${CONFIGURE_ARGS}" \
     "${SYSTEM_SITE_ARG[@]}" \
