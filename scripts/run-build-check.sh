@@ -31,6 +31,11 @@
 #   CONFIGURE_ARGS override the cmake feature set (default: CONFIGURE_FLAGS below)
 #   CEPH_PYTHON_SYSTEM_SITE  1 (default) run test venvs with system site-packages
 #                            (patch 1008); empty to disable
+#   NPROC         build parallelism, overrides run-make.sh's nproc/2 default
+#                 (sets build -j and BOOST_J; default 52). ctest keeps -j$(nproc).
+#   SCCACHE_HOST_DIR    host dir bound as the in-container sccache cache so it
+#                       persists across runs (default ${WORKDIR}/sccache-cache)
+#   SCCACHE_CACHE_SIZE  sccache max cache size (default 30G; sccache default is 5G)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -251,8 +256,7 @@ CONFIGURE_FLAGS=(
     # run-make.sh and invalidates the ctest timeout / known-failures calibration
     -DCMAKE_BUILD_TYPE=RelWithDebInfo
     # upstream make-check CI (ceph-pull-requests{,-arm64}) enables both via env
-    # (WITH_CRIMSON=true, WITH_RBD_RWL=true -> run-make.sh -DWITH_*=ON);
-    # seastar/pmdk unproven on riscv64 -- uncomment after a trial run
+    # (WITH_CRIMSON=true, WITH_RBD_RWL=true -> run-make.sh -DWITH_*=ON)
     -DWITH_CRIMSON=ON
     -DWITH_RBD_RWL=ON
 )
@@ -292,6 +296,28 @@ else
     echo "  clean build: removing ${CEPH_SRC}/build"
     rm -rf "${CEPH_SRC}/build"
 fi
+
+# 3g. Build tuning forwarded to every bwc container run (pre-build + STEPS):
+#   NPROC : run-make.sh's get_processors() defaults to nproc/2, idling half the
+#           cores; override it (drives build -j and BOOST_J). ctest stays -j$(nproc).
+#   sccache: bwc runs each step in a --rm container (HOME=/root), so the default
+#           ~/.cache/sccache is discarded every run -> cold cache, 100% miss. Bind a
+#           host dir to persist it across runs; a clean build/ still hits because
+#           sccache is content-addressed. Size past the 5G default, and disable the
+#           idle timeout that shut the server down mid-build (falling back to local).
+NPROC="${NPROC:-58}"
+SCCACHE_HOST_DIR="${SCCACHE_HOST_DIR:-${WORKDIR}/sccache-cache}"
+SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-100G}"
+mkdir -p "${SCCACHE_HOST_DIR}"
+echo "  NPROC=${NPROC} (build -j / BOOST_J; ctest stays -j$(nproc))"
+echo "  sccache: ${SCCACHE_HOST_DIR} -> /root/.cache/sccache (max ${SCCACHE_CACHE_SIZE})"
+declare -a BUILD_TUNE_ARGS=(
+    --extra="-eNPROC=${NPROC}"
+    --extra="--volume=${SCCACHE_HOST_DIR}:/root/.cache/sccache:Z"
+    --extra="-eSCCACHE_DIR=/root/.cache/sccache"
+    --extra="-eSCCACHE_CACHE_SIZE=${SCCACHE_CACHE_SIZE}"
+    --extra="-eSCCACHE_IDLE_TIMEOUT=0"
+)
 
 # 4a. Container networking for proxied hosts (only when GIT_PROXY set). The proxy is a
 #     routable IP, so both the bwc image-build and run containers reach it over the
@@ -348,6 +374,7 @@ if [ -n "${GIT_PROXY}" ]; then
         --distro openruyi \
         --container-engine "${ENGINE}" \
         "${GIT_CFG_ARGS[@]}" \
+        "${BUILD_TUNE_ARGS[@]}" \
         --extra="-eCONFIGURE_ARGS=${CONFIGURE_ARGS}" \
         "${SYSTEM_SITE_ARG[@]}" \
         -e buildtests \
@@ -368,6 +395,7 @@ python3 src/script/build-with-container.py \
     --distro openruyi \
     --container-engine "${ENGINE}" \
     "${NET_ARGS[@]}" \
+    "${BUILD_TUNE_ARGS[@]}" \
     --extra="-eCHECK_MAKEOPTS=${CHECK_MAKEOPTS}" \
     --extra="-eCONFIGURE_ARGS=${CONFIGURE_ARGS}" \
     "${SYSTEM_SITE_ARG[@]}" \
