@@ -1,46 +1,46 @@
 {
-  "_comment": [
-    "Known ctest outcomes on riscv64/openRuyi, consumed by scripts/run-build-check.sh.",
-    "Each entry tags a ctest name as 'exclude' or 'flake':",
-    "  exclude - deterministically wrong for a non-defect reason (version-sensitive",
-    "            goldens, etc). Dropped via ctest -E. openRuyi's spec %check -E's the",
-    "            same ones.",
-    "  flake   - passes alone, fails under -j contention (timing/resource races, not",
-    "            code bugs). NOT excluded; the run uses ctest --repeat until-pass so",
-    "            a retry clears them while a real regression still fails.",
-    "Real code bugs are NOT listed here - they are carried as fork-patches (see README).",
-    "'test' is matched as a ctest-name regex (anchored ^...$ by the script)."
-  ],
-  "failures": [
-    {
-      "test": "run-tox-promql-query-test",
-      "type": "exclude",
-      "reason": "grafana panel goldens drift with the prometheus version; not a defect",
-      "ref": "openRuyi spec %check -E excludes it too"
-    },
-    {
-      "test": "run-promtool-unittests",
-      "type": "exclude",
-      "reason": "alert-rules golden (tests_alerts/test_alerts.yml) drifts with the prometheus version; not a defect",
-      "ref": "openRuyi spec %check -E excludes it too"
-    },
-    {
-      "test": "run-tox-alerts-lint",
-      "type": "exclude",
-      "reason": "promtool packaged but not baked into the build image yet; `promtool check rules` fails with ENOENT",
-      "ref": "re-enable once promtool is baked into the build image"
-    },
-    {
-      "test": "unittest_bluefs",
-      "type": "flake",
-      "reason": "BlueFS_wal.wal_v2_check_feature perf-ratio assert (v2 >=1.2x v1), unreliable under CPU contention",
-      "ref": "test_bluefs.cc:1264"
-    },
-    {
-      "test": "run-rbd-unit-tests-1.sh",
-      "type": "flake",
-      "reason": "TestLibRBD encryption LUKS2/clone: argon2id KDF fails under memory pressure with high -j",
-      "ref": "test_librbd.cc:2451/2548"
-    }
-  ]
+	"_comment": [
+		"Known ctest outcomes on riscv64/openRuyi, consumed by scripts/run-build-check.sh.",
+		"Each entry tags a ctest name as 'exclude' or 'flake':",
+		"  exclude - deterministically wrong for a non-defect reason (version-sensitive",
+		"            goldens, etc). Dropped via ctest -E. openRuyi's spec %check -E's the",
+		"            same ones.",
+		"  flake   - passes alone, fails under -j contention (timing/resource races, not",
+		"            code bugs). NOT excluded; the run uses ctest --repeat until-pass so",
+		"            a retry clears them while a real regression still fails.",
+		"Real code bugs are NOT listed here - they are carried as fork-patches (see README).",
+		"'test' is matched as a ctest-name regex (anchored ^...$ by the script)."
+	],
+	"failures": [
+		{
+			"test": "run-tox-promql-query-test",
+			"type": "exclude",
+			"reason": "grafana panel goldens drift with the prometheus version; not a defect",
+			"ref": "openRuyi spec %check -E excludes it too"
+		},
+		{
+			"test": "run-promtool-unittests",
+			"type": "exclude",
+			"reason": "alert-rules golden (tests_alerts/test_alerts.yml) drifts with the prometheus version; not a defect",
+			"ref": "openRuyi spec %check -E excludes it too"
+		},
+		{
+			"test": "run-tox-alerts-lint",
+			"type": "exclude",
+			"reason": "promtool packaged but not baked into the build image yet; `promtool check rules` fails with ENOENT",
+			"ref": "re-enable once promtool is baked into the build image"
+		},
+		{
+			"test": "unittest_bluefs",
+			"type": "flake",
+			"reason": "todo",
+			"ref": "test_bluefs.cc:1264"
+		},
+		{
+			"test": "run-rbd-unit-tests-1.sh",
+			"type": "flake",
+			"reason": "todo",
+			"ref": "test_librbd.cc:2451/2548"
+		}
+	]
 }

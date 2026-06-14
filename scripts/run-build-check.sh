@@ -32,7 +32,8 @@
 #   CEPH_PYTHON_SYSTEM_SITE  1 (default) run test venvs with system site-packages
 #                            (patch 1008); empty to disable
 #   NPROC         build parallelism, overrides run-make.sh's nproc/2 default
-#                 (sets build -j and BOOST_J; default 52). ctest keeps -j$(nproc).
+#                 (sets build -j and BOOST_J; default 52).
+#   CTEST_JOBS    ctest parallelism (default 40; nproc oversubscribes CPU/RAM).
 #   SCCACHE_HOST_DIR    host dir bound as the in-container sccache cache so it
 #                       persists across runs (default ${WORKDIR}/sccache-cache)
 #   SCCACHE_CACHE_SIZE  sccache max cache size (default 30G; sccache default is 5G)
@@ -218,11 +219,12 @@ done
 
 # 3c. ctest options from known-failures.json, forwarded via CHECK_MAKEOPTS (replaces
 #     ceph's default -j, so we re-supply it):
+#       -j<n>          : CTEST_JOBS (default 40)
 #       --timeout 6000 : riscv64-only (slow hardware), matching openRuyi's %ctest macro
 #       -E '^(...)$'   : known-failures.json type=="exclude"
 #       --repeat       : retry type=="flake" entries (FLAKE_RETRIES, default 2)
 KNOWN_FAILURES="${REPO_ROOT}/known-failures.json"
-CHECK_MAKEOPTS="-j$(nproc) --timeout 6000"
+CHECK_MAKEOPTS="-j${CTEST_JOBS:-40} --timeout 6000"
 if [ -f "${KNOWN_FAILURES}" ]; then
     EXCLUDE_RE="$(python3 - "${KNOWN_FAILURES}" <<'PY'
 import json, sys
@@ -299,7 +301,7 @@ fi
 
 # 3g. Build tuning forwarded to every bwc container run (pre-build + STEPS):
 #   NPROC : run-make.sh's get_processors() defaults to nproc/2, idling half the
-#           cores; override it (drives build -j and BOOST_J). ctest stays -j$(nproc).
+#           cores; override it (drives build -j and BOOST_J). ctest is -j40.
 #   sccache: bwc runs each step in a --rm container (HOME=/root), so the default
 #           ~/.cache/sccache is discarded every run -> cold cache, 100% miss. Bind a
 #           host dir to persist it across runs; a clean build/ still hits because
@@ -309,7 +311,7 @@ NPROC="${NPROC:-58}"
 SCCACHE_HOST_DIR="${SCCACHE_HOST_DIR:-${WORKDIR}/sccache-cache}"
 SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-100G}"
 mkdir -p "${SCCACHE_HOST_DIR}"
-echo "  NPROC=${NPROC} (build -j / BOOST_J; ctest stays -j$(nproc))"
+echo "  NPROC=${NPROC} (build -j / BOOST_J; ctest -j40)"
 echo "  sccache: ${SCCACHE_HOST_DIR} -> /root/.cache/sccache (max ${SCCACHE_CACHE_SIZE})"
 declare -a BUILD_TUNE_ARGS=(
     --extra="-eNPROC=${NPROC}"
