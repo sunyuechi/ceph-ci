@@ -315,6 +315,10 @@ echo "  NPROC=${NPROC} (build -j / BOOST_J; ctest -j40)"
 echo "  sccache: ${SCCACHE_HOST_DIR} -> /root/.cache/sccache (max ${SCCACHE_CACHE_SIZE})"
 declare -a BUILD_TUNE_ARGS=(
     --extra="-eNPROC=${NPROC}"
+    # CI builds via run-make.sh, which never runs ceph.spec.in's %build, so the
+    # spec's -fuse-ld=mold LDFLAGS export does not apply here; inject it so cmake
+    # seeds the EXE/SHARED/MODULE linker flags from it on a clean configure.
+    --extra="-eLDFLAGS=-fuse-ld=mold"
     --extra="--volume=${SCCACHE_HOST_DIR}:/root/.cache/sccache:Z"
     --extra="-eSCCACHE_DIR=/root/.cache/sccache"
     --extra="-eSCCACHE_CACHE_SIZE=${SCCACHE_CACHE_SIZE}"

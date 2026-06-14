@@ -1,0 +1,58 @@
+From 3e1af0a321c9bdc39521fd1a878e35e29b375202 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 15 Jun 2026 02:28:20 +0800
+Subject: [PATCH] crimson/os: tolerate duplicate symbols when linking with
+ mold/lld
+
+crimson-alienstore compiles a copy of several src/common/*.cc (e.g.
+PluginRegistry.cc) without WITH_CRIMSON, while crimson-common compiles the
+same sources with WITH_CRIMSON; both export the same symbols. Executables
+that link crimson-os or crimson-alienstore pull in both definitions. GNU ld
+extracts archive members lazily in command-line order and keeps only the
+first one, but stricter linkers (mold, lld) extract both and abort with
+duplicate-symbol errors.
+
+Propagate -Wl,--allow-multiple-definition as an INTERFACE link option from
+crimson-os and crimson-alienstore so the first definition wins, matching
+ld.bfd's behaviour. The flag is harmless for ld.bfd.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/crimson/os/CMakeLists.txt            | 10 ++++++++++
+ src/crimson/os/alienstore/CMakeLists.txt |  5 +++++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/src/crimson/os/CMakeLists.txt b/src/crimson/os/CMakeLists.txt
+index 5054cabf473..07ba093125c 100644
+--- a/src/crimson/os/CMakeLists.txt
++++ b/src/crimson/os/CMakeLists.txt
+@@ -14,3 +14,13 @@ target_link_libraries(crimson-os
+   ${alienstore_lib}
+   crimson-seastore
+   crimson)
++
++# crimson-alienstore compiles a copy of several src/common/*.cc (e.g.
++# PluginRegistry.cc) without WITH_CRIMSON, while crimson-common compiles the
++# same sources with WITH_CRIMSON; both export the same symbols. Any executable
++# that links crimson-os therefore pulls in both definitions. GNU ld extracts
++# archive members lazily in command-line order and keeps only the first one,
++# but stricter linkers (mold, lld) extract both and abort with duplicate-symbol
++# errors. Propagate --allow-multiple-definition to consumers so the first
++# definition wins, matching ld.bfd's behaviour. Harmless for ld.bfd.
++target_link_options(crimson-os INTERFACE -Wl,--allow-multiple-definition)
+diff --git a/src/crimson/os/alienstore/CMakeLists.txt b/src/crimson/os/alienstore/CMakeLists.txt
+index 6a227cfdb87..0f88f5535ed 100644
+--- a/src/crimson/os/alienstore/CMakeLists.txt
++++ b/src/crimson/os/alienstore/CMakeLists.txt
+@@ -82,3 +82,8 @@ target_link_libraries(crimson-alienstore
+     ${BLKID_LIBRARIES}
+     ${UDEV_LIBRARIES}
+     blk)
++
++# crimson-alien-common duplicates symbols that crimson-common also defines (see
++# src/crimson/os/CMakeLists.txt). Executables that link crimson-alienstore
++# directly (rather than via crimson-os) need the same workaround.
++target_link_options(crimson-alienstore INTERFACE -Wl,--allow-multiple-definition)
+-- 
+2.54.0
+

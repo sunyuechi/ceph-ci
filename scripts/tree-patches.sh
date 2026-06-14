@@ -22,8 +22,14 @@ TREE_PATCHES=(
     1009-mypy-skip-follow_imports-for-prettytable.patch
 	# https://github.com/ceph/ceph/pull/69455
     1012-test-crimson-messenger-thrash-bump-memory.patch
-    # ours -- print sccache --show-stats after build so CI sees the cache hit rate
+    # https://github.com/ceph/ceph/pull/69462
     1016-run-make-print-sccache-stats.patch
+    # todo
+    1017-test-encoding-run-readable.sh-with-a-sliding-window-.patch
+    # todo
+    1018-crimson-os-tolerate-duplicate-symbols-when-linking-w.patch
+    # todo
+    1019-rgw-declare-rgw_a-s-dependency-on-rgw_schedulers-and.patch
     # -- 2xxx: openRuyi downstream, not for upstream --
     # bump pylint 2.6.0 -> 2.17.7 for py3.13 / wrapt compat
     2001-monitoring-ceph-mixin-bump-pylint.patch

@@ -1,0 +1,75 @@
+From 554d8f9a8b610c1eae47b86c015a2601f87a4b90 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 15 Jun 2026 04:45:37 +0800
+Subject: [PATCH] rgw: declare rgw_a's dependency on rgw_schedulers and kmip
+
+rgw_a contains translation units that reference symbols defined in
+other libraries: rgw_appmain.cc and rgw_asio_frontend.cc use
+rgw::dmclock::* (rgw_schedulers), and rgw_kmip_client_impl.cc uses
+kmip_* (kmip). rgw_a never declared either as a link dependency;
+instead every consumer (radosgw, the rgw shared library, the unit
+tests, ...) was expected to relink them by hand.
+
+Most unit tests that link only rgw_a never listed them and built
+anyway, solely because ld.bfd extracts archive members lazily and
+happened never to pull the offending members. Linkers that resolve
+the whole link as a group, such as mold and lld, do pull those
+members and then abort with undefined references to kmip_* and
+rgw::dmclock::*.
+
+Declare the dependency on the library that actually needs it, so it
+propagates to every consumer, and drop the now-redundant explicit
+links from radosgw and the rgw shared library. PRIVATE because the
+symbols are internal to rgw_a and not exposed through its public
+headers.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/rgw/CMakeLists.txt | 17 +++++++++++++----
+ 1 file changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/src/rgw/CMakeLists.txt b/src/rgw/CMakeLists.txt
+index f0f605d6200..ffaba1c9b15 100644
+--- a/src/rgw/CMakeLists.txt
++++ b/src/rgw/CMakeLists.txt
+@@ -508,6 +508,19 @@ if(COMPILER_SUPPORTS_VLA_ERROR)
+     $<$<COMPILE_LANGUAGE:CXX>:-Werror=vla>)
+ endif()
+ 
++# rgw_a contains TUs that reference symbols defined in rgw_schedulers
++# (rgw_appmain.cc, rgw_asio_frontend.cc use rgw::dmclock::*) and in kmip
++# (rgw_kmip_client_impl.cc uses kmip_*), yet rgw_a never declared either as a
++# dependency.  Every consumer (radosgw, the rgw shared lib, unit tests, ...)
++# was expected to relink them by hand, and most unit tests that link only
++# rgw_a got away with it solely because ld.bfd extracts archive members
++# lazily and never pulled those members.  Linkers that resolve the whole
++# link as a group (mold, lld) do pull them and then fail with undefined
++# symbols.  Declare the dependency on the library that actually needs it so
++# it propagates to every consumer.  PRIVATE because the symbols are internal
++# to rgw_a and not exposed through its public headers.
++target_link_libraries(rgw_a PRIVATE rgw_schedulers kmip)
++
+ set(radosgw_srcs
+   rgw_main.cc)
+ 
+@@ -532,8 +545,6 @@ target_include_directories(radosgw SYSTEM PUBLIC "../rapidjson/include")
+ target_link_libraries(radosgw PRIVATE
+   legacy-option-headers
+   ${rgw_libs}
+-  rgw_schedulers
+-  kmip
+   ${ALLOC_LIBS})
+ 
+ install(TARGETS radosgw DESTINATION bin)
+@@ -642,8 +653,6 @@ target_include_directories(rgw SYSTEM PUBLIC "../rapidjson/include")
+ target_link_libraries(rgw
+   PRIVATE
+   ${rgw_libs}
+-  rgw_schedulers
+-  kmip
+   librados
+   cls_rgw_client
+   cls_otp_client
+-- 
+2.54.0
+
