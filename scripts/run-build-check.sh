@@ -74,6 +74,7 @@ exec > >(gawk -v t0="${_RUN_T0}" \
 BUILD_CONTAINER="ceph_build"
 _cleanup_on_signal() {
     trap - INT TERM                      # disarm so a second signal can't re-enter
+    [ -n "${MEM_SAMPLER_PID:-}" ] && kill "${MEM_SAMPLER_PID}" 2>/dev/null || true
     echo "=== interrupted: killing build container ${BUILD_CONTAINER} ==="
     "${ENGINE}" kill "${BUILD_CONTAINER}" >/dev/null 2>&1 || true
     "${ENGINE}" rm -f "${BUILD_CONTAINER}" >/dev/null 2>&1 || true
@@ -261,6 +262,12 @@ CONFIGURE_FLAGS=(
     # (WITH_CRIMSON=true, WITH_RBD_RWL=true -> run-make.sh -DWITH_*=ON)
     -DWITH_CRIMSON=ON
     -DWITH_RBD_RWL=ON
+    # ceph's LimitJobs.cmake sizes the link job pool as total_mem / MAX_LINK_MEM
+    # (default 4500 MiB/link -> 28 links here). mold links the crimson/RelWithDebInfo
+    # mega-targets at ~2x that, so 28 parallel links OOM this box. Pin the pool via
+    # ceph's own knob (avg=N, heavy=N/2); plain -DCMAKE_JOB_POOLS is ignored because
+    # ceph already owns the JOB_POOLS global property.
+    -DNINJA_MAX_LINK_JOBS=6
 )
 CONFIGURE_ARGS="${CONFIGURE_ARGS:-${CONFIGURE_FLAGS[*]}}"
 echo "  CONFIGURE_ARGS='${CONFIGURE_ARGS}'"
@@ -383,6 +390,27 @@ declare -a SYSTEM_SITE_ARG=()
 
 cd "${CEPH_SRC}"
 
+# 4b.5 Background memory sampler. The build is OOM-prone (mold links the crimson
+#      mega-targets at several GB RSS, and ld.mold OOM is a global kill, not a
+#      cgroup one), and we cannot watch it live. Sample host memory + the top RSS
+#      consumers every MEM_SAMPLE_INTERVAL seconds to a sibling log so a killed
+#      run can be diagnosed afterwards. Host-side ps sees the in-container procs.
+MEM_LOG="${WORKDIR}/ci-log/$(date +%Y%m%d-%H%M%S)-mem.log"
+ln -sfn "${MEM_LOG}" "${WORKDIR}/mem-usage.log"
+_mem_sampler() {
+    while :; do
+        # avail = MemAvailable (true headroom); pair with top RSS procs so an OOM
+        # can be pinned to ld.mold / cc1plus.
+        free -m | awk -v ts="$(date '+%H:%M:%S')" \
+            '/^Mem:/{printf "[%s] used=%sM avail=%sM", ts, $3, $7}'
+        ps -eo rss=,comm= --sort=-rss | awk 'NR<=6{printf " %s=%dM", $2, $1/1024} END{print ""}'
+        sleep "${MEM_SAMPLE_INTERVAL:-5}"
+    done
+}
+_mem_sampler >> "${MEM_LOG}" 2>&1 &
+MEM_SAMPLER_PID=$!
+echo "  memory sampler pid=${MEM_SAMPLER_PID} -> ${MEM_LOG}"
+
 # 4c. Proxied pre-build: compile the tests target once with the proxy forwarded
 #     into the container (podman --http-proxy default), so cmake's superbuild
 #     URL-downloads (boost) go through the proxy instead of a slow direct
@@ -424,6 +452,16 @@ python3 src/script/build-with-container.py \
     "${EXEC[@]}"
 RC=$?
 set -e
+
+# 4e. Stop the memory sampler and surface the low-water mark + peak linker RSS so
+#     an OOM shows up in run.log without trawling the full mem timeline.
+kill "${MEM_SAMPLER_PID}" 2>/dev/null || true
+wait "${MEM_SAMPLER_PID}" 2>/dev/null || true
+echo "=== memory peak during build (full timeline: ${MEM_LOG}) ==="
+gawk 'match($0,/avail=([0-9]+)M/,a){if(m==""||a[1]<m){m=a[1];L=$0}}
+      END{if(m!="")print "  min MemAvailable="m"M @ "L; else print "  (no samples captured)"}' "${MEM_LOG}" || true
+gawk 'match($0,/(ld\.mold|mold|cc1plus)=([0-9]+)M/,a){if(a[2]+0>m){m=a[2]+0;p=a[1]}}
+      END{if(m)print "  peak "p" RSS="m"M"}' "${MEM_LOG}" || true
 
 # 5. surface where ctest results landed (collected as artifacts by the workflow)
 echo "=== ctest output dir (build/Testing) ==="
