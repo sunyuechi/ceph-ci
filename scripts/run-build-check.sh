@@ -8,7 +8,10 @@
 #   CEPH_REPO     upstream ceph git URL (default https://github.com/ceph/ceph.git)
 #   CEPH_REF      branch/tag/sha to test (default main)
 #   WORKDIR       parent of the per-CI buckets (default: this repo's parent dir);
-#                 this CI lives entirely under ${WORKDIR}/build-check/
+#                 this CI lives under ${WORKDIR}/build-check/ (non-ASan, default)
+#                 or ${WORKDIR}/build-check-asan/ (WITH_ASAN=1)
+#   WITH_ASAN     1 to build with -DWITH_ASAN=ON in a separate build-check-asan
+#                 bucket; default 0 (no ASan, build-check bucket)
 #   STEPS         comma list of bwc steps (default tests)
 #   BUILD_INCREMENTAL  1 to reuse an existing build/ (default: clean build)
 #   REBUILD_DEPS  1 to drop the cached build image and reinstall BuildRequires,
@@ -55,11 +58,23 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CEPH_REPO="${CEPH_REPO:-https://github.com/ceph/ceph.git}"
 CEPH_REF="${CEPH_REF:-main}"
 WORKDIR="${WORKDIR:-$(dirname "${REPO_ROOT}")}"
-# Each of the three CIs owns a subdir under ${WORKDIR} -- build-check / spec-openruyi /
-# spec-upstream -- instead of sharing one flat dir distinguished only by name prefixes.
-# So the checkout, logs and caches of the three never interleave: `cd build-check/` and
-# everything there is this CI's. This is the build-check bucket.
-BASE="${WORKDIR}/build-check"
+# WITH_ASAN: opt-in (default off). =1 builds with -DWITH_ASAN=ON and uses a
+# SEPARATE bucket (build-check-asan), so the ASan and non-ASan checkouts / build
+# dirs / sccache caches never mix. Normalize to exactly 0/1.
+case "${WITH_ASAN:-0}" in
+    1|true|yes|on) WITH_ASAN=1 ;;
+    *)             WITH_ASAN=0 ;;
+esac
+# Each CI owns a subdir under ${WORKDIR} -- build-check / build-check-asan /
+# spec-openruyi / spec-upstream -- instead of sharing one flat dir distinguished
+# only by name prefixes. So the checkout, logs and caches never interleave:
+# `cd build-check/` and everything there is the non-ASan CI's. The ASan run lives
+# entirely under build-check-asan/ and is otherwise identical.
+if [ "${WITH_ASAN}" = 1 ]; then
+    BASE="${WORKDIR}/build-check-asan"
+else
+    BASE="${WORKDIR}/build-check"
+fi
 mkdir -p "${BASE}"
 STEPS="${STEPS:-tests}"
 ENGINE="${CONTAINER_ENGINE:-podman}"
@@ -106,6 +121,15 @@ CONFIGURE_FLAGS=(
     # ceph already owns the JOB_POOLS global property.
     # -DNINJA_MAX_LINK_JOBS=8
 )
+
+# ASan opt-in. Replaces fork patch 1048, which hardcoded -DWITH_ASAN=ON in
+# run-make.sh: the flag is just a cmake feature like the rest of CONFIGURE_FLAGS,
+# so we inject it here instead and gate it on WITH_ASAN. The test working-set
+# shrink patches (1045-1047) are guarded by __has_feature(address_sanitizer), so
+# they are no-ops in a non-ASan build and stay applied unconditionally.
+if [ "${WITH_ASAN}" = 1 ]; then
+    CONFIGURE_FLAGS+=(-DWITH_ASAN=ON)
+fi
 
 # Normalize to exactly 0/1: it is compared verbatim in the patch list and the
 # image fingerprint, so "true"/"yes" must not read as a third state.
@@ -200,6 +224,7 @@ fi
 echo "=== ceph-ci build-check run ==="
 echo "  repo=${CEPH_REPO} ref=${CEPH_REF}"
 echo "  base=${BASE} engine=${ENGINE} steps=${STEPS}"
+echo "  WITH_ASAN=${WITH_ASAN} (1=-DWITH_ASAN=ON in build-check-asan, 0=no ASan in build-check)"
 echo "  CEPH_PYTHON_SYSTEM_SITE='${CEPH_PYTHON_SYSTEM_SITE}' (empty=off)"
 echo "  TEMP_OBS_REPO=${TEMP_OBS_REPO} (1=prefer home:sunyuechi:openruyi-test, 0=stock repos only)"
 echo "  GIT_PROXY='${GIT_PROXY}' (empty=direct)"
@@ -271,13 +296,27 @@ SUBMODULE_PATCHES=(
 for name in "${TREE_PATCHES[@]}"; do
     p="${REPO_ROOT}/fork-patches/${name}"
     [ -e "$p" ] || { echo "ERROR: listed patch not found: ${name}" >&2; exit 1; }
-    if git -C "${CEPH_SRC}" apply --reverse --check "$p" 2>/dev/null; then
+    # --index is required: without it --check runs against the worktree, where a
+    # submodule is a directory with no blob to compare, so gitlink-only patches
+    # (1065, 1098) pass --reverse --check regardless of the current gitlink and get
+    # falsely skipped as "already applied". --index compares the index gitlink.
+    if git -C "${CEPH_SRC}" apply --reverse --check --index "$p" 2>/dev/null; then
         echo "patch already applied upstream, skipping: ${name}"
         continue
     fi
     echo "applying ${name}"
     git -C "${CEPH_SRC}" apply --3way "$p"
 done
+
+# 3a-bis. A tree patch may bump a submodule gitlink (1065 bumps src/seastar to a
+#     riscv64-capable commit). git apply rewrites only the gitlink in the index, not
+#     the submodule worktree, so without this the build keeps compiling the OLD
+#     submodule source (e.g. seastar 15b1ca1b, which #errors "cache_line_size not
+#     defined for this architecture" on riscv64). Re-run submodule update to check
+#     out the bumped commit. Must run BEFORE the submodule patches below, whose
+#     --force would otherwise revert them.
+echo "re-syncing submodules to patched gitlinks"
+git -C "${CEPH_SRC}" "${GIT_PROXY_ARGS[@]}" submodule update --init --force --recursive ${GIT_PROXY:+--jobs 4}
 
 # 3b. submodule patches (fresh clone builds from patched source; no relink needed).
 for rel in "${SUBMODULE_PATCHES[@]}"; do

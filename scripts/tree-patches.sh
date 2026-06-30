@@ -11,8 +11,6 @@ TREE_PATCHES=(
     1003-openruyi-spec.patch
 	# https://github.com/ceph/ceph/pull/69448
     1004-pmdk-riscv64-use-daos-stack.patch
-    # https://github.com/ceph/ceph/pull/69156
-    1007-monitoring-jsonnet-bundler-v0.6.0.patch
 	# https://github.com/ceph/ceph/pull/69455
     1012-test-crimson-messenger-thrash-bump-memory.patch
 	# https://github.com/ceph/ceph/pull/69520
@@ -32,11 +30,13 @@ TREE_PATCHES=(
 	1041-test_DiffIterate.cc.patch
 
 	# https://github.com/ceph/ceph/pull/69680
+	# ASan-guarded test shrinks (__has_feature(address_sanitizer)); no-ops without
+	# ASan, so applied unconditionally. ASan itself is opt-in via WITH_ASAN in
+	# run-build-check.sh (-DWITH_ASAN=ON), which replaces former patch 1048.
 	1045-test-crimson-omap-enlarge-values-under-ASan-to-shrin.patch
 	# todo
 	1046-test-crimson-onode-shrink-synthetic-pool-under-ASan.patch
 	1047-test-transaction_manager-shrink-working-set-under-AS.patch
-	1048-script-run-make-enable-ASan.patch
 
 	# todo
 	1052-osd-ECBackend-fix-iterator-invalidation-in-omap_get.patch
@@ -49,9 +49,11 @@ TREE_PATCHES=(
 
 	#todo
 	1058-osd-guard-max_element-end-deref-in-get_health_metric.patch
+	# https://github.com/ceph/ceph/pull/69746
 	1059-osd-fix-osd_reqid_t-comparison-strict-weak-ordering.patch
 	1060-osd-fix-misspelled-inject-ec-clear-command-names.patch
 	1061-osd-dump_osd_network-min-section-now-reports-min-not.patch
+	# https://github.com/ceph/ceph/pull/69865
 	1062-osd-report-EINVAL-to-on_finish-in-asok_route_to_pg-c.patch
 	1063-osd-drop-bogus-snaps-key-in-rollback_extents-dump.patch
 	1064-osd-avoid-inserting-empty-OI_ATTR-in-rollback_setatt.patch
@@ -71,6 +73,41 @@ TREE_PATCHES=(
 	1072-rgw-sts-fix-inverted-tokenCode-length-validation.patch
 	# https://github.com/ceph/ceph/pull/69819
 	1074-blk-spdk-call-spdk_env_opts_init-before-setting-pci-.patch
+
+	# https://github.com/ceph/ceph/pull/69863
+	1075-crimson-osd-replicated_recovery_backend-fix-use-afte.patch
+	# todo
+	1076-crimson-osd-pg_recovery-fix-exception-handler-scope-.patch
+
+	# https://github.com/ceph/ceph/pull/69862
+	1077-crimson-mon-MonClient-fix-use-after-free-in-run_comm.patch
+
+	# https://github.com/ceph/ceph/pull/69855
+	1078-fix-crimson-osd-ec_backend.patch
+
+	# todo
+	1080-cmake-keep-seastar-s-Seastar_SANITIZE-in-lockstep-wi.patch
+
+	# https://github.com/ceph/ceph/pull/69880
+	1081-fix-client.patch
+
+	# todo
+	1084-osdc-fix-ReplicaSplitOp-picking-an-invalid-acting-in.patch
+	1085-mgr-DaemonServer-fix-order-dependent-ok-to-stop-fals.patch
+	# https://github.com/ceph/ceph/pull/69885
+	1086-rados-clean.patch
+	# todo
+	1089-ceph_dedup-avoid-divide-by-zero-in-EstimateResult-du.patch
+	1090-ceph_dedup-write-chunk-data-at-offset-0-in-make_dedu.patch
+	1091-ceph_dedup-validate-sampling-ratio-range-in-daemon.patch
+	1092-cephfs-data-scan-increment-progress-in-scan_frags.patch
+	1093-cephfs-bench-reject-a-block-size-of-0.patch
+	1094-cephfs-bench-fix-invalid-short-option-name-for-files.patch
+	1095-kv-rocksdb_cache-fix-BinnedLRUCache-l_elems-counter-.patch
+
+	1096-test-common-add-RISC-V-CRC32C-performance-benchmark-.patch
+	1097-test-add-RISC-V-architecture-probe-tests.patch
+	1098-src-xxHash-sync-with-upstream-to-enable-RISC-V-RVV-o.patch
 
     # -- 2xxx: openRuyi downstream, not for upstream --
     # bump pylint 2.6.0 -> 2.17.7 for py3.13 / wrapt compat

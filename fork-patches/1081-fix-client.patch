@@ -1,0 +1,125 @@
+From 69d5d29ebe232921e8c1abe07948ae23239833ab Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Wed, 1 Jul 2026 01:55:32 -0700
+Subject: [PATCH 1/3] client: fix double unlock of client_lock in mount()
+
+mount() holds client_lock through a unique_lock (cl), but the dummy
+encryption path unlocked and relocked the underlying mutex directly,
+bypassing cl. On fscrypt_dummy_encryption() failure it returns early
+without relocking, so cl's destructor then unlocks an already-unlocked
+mutex, which is undefined behavior. Only reachable when
+client_fscrypt_dummy_encryption is enabled.
+
+Unlock/relock through cl so its ownership state stays consistent.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/client/Client.cc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/client/Client.cc b/src/client/Client.cc
+index af7449e72200f..17366b8326999 100644
+--- a/src/client/Client.cc
++++ b/src/client/Client.cc
+@@ -7044,14 +7044,14 @@ int Client::mount(const std::string &mount_root, const UserPerm& perms,
+ #if defined(__linux__)
+   // dummy encryption?
+   if (cct->_conf.get_val<bool>("client_fscrypt_dummy_encryption")) {
+-    client_lock.unlock();
++    cl.unlock();
+ 
+     r = fscrypt_dummy_encryption();
+     if (r < 0) {
+       return r;
+     }
+ 
+-    client_lock.lock();
++    cl.lock();
+   }
+ #endif
+   /*
+
+From 86a8a6b14662b382dc8a4e6ba74127b599cd6d79 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Wed, 1 Jul 2026 01:56:16 -0700
+Subject: [PATCH 2/3] client: fix _wrap_name reporting success on encryption
+ failure
+
+_wrap_name() returns bool, but two encryption error paths did "return r"
+with r < 0, which converts to true. Callers then treated the failure as
+success and used the unencrypted name. Return false instead.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/client/Client.cc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/client/Client.cc b/src/client/Client.cc
+index 17366b8326999..fcac11545e7d4 100644
+--- a/src/client/Client.cc
++++ b/src/client/Client.cc
+@@ -1417,7 +1417,7 @@ bool Client::_wrap_name(Inode& diri, std::string& dname, std::string& alternate_
+     int r = fscrypt_denc->get_encrypted_fname(dname, &_enc_name, &_alt_name, false);
+     if (r < 0) {
+       ldout(cct, 0) << __FILE__ << ":" << __LINE__ << ": failed to encrypt filename" << dendl;
+-      return r;
++      return false;
+     }
+     dname = std::move(_enc_name);
+     if (alternate_name.empty()) {
+@@ -1428,7 +1428,7 @@ bool Client::_wrap_name(Inode& diri, std::string& dname, std::string& alternate_
+       int r = fscrypt_denc->get_encrypted_fname(alternate_name, &_enc_name, &_alt_name, true);
+       if (r < 0) {
+         ldout(cct, 0) << __FILE__ << ":" << __LINE__ << ": failed to encrypt filename" << dendl;
+-        return r;
++        return false;
+       }
+       alternate_name = std::move(_alt_name);
+     }
+
+From 777596e95cb60c1344bb4e4c87cdb6bf0d1521a3 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Wed, 1 Jul 2026 01:58:17 -0700
+Subject: [PATCH 3/3] client: don't use uninitialized keyid in
+ fscrypt_dummy_encryption
+
+When add_fscrypt_key() failed it jumped to the err label, which then
+read the uninitialized keyid buffer into a key specifier and issued a
+key removal for it. add_fscrypt_key() only populates keyid on success,
+so this read uninitialized stack memory. Return the error directly
+instead, since no key was added and there is nothing to remove.
+
+Also stop overwriting the original error with remove_fscrypt_key()'s
+return value on the policy-set failure path, so the real failure is
+reported to the caller.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/client/Client.cc | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/src/client/Client.cc b/src/client/Client.cc
+index fcac11545e7d4..7ee0d2af3d53a 100644
+--- a/src/client/Client.cc
++++ b/src/client/Client.cc
+@@ -7372,7 +7372,9 @@ int Client::fscrypt_dummy_encryption() {
+     char keyid[FSCRYPT_KEY_IDENTIFIER_SIZE];
+     int r = add_fscrypt_key(key, sizeof(key), keyid);
+     if (r < 0) {
+-      goto err;
++      // The key was not added, so keyid is not populated and there is
++      // nothing to remove.
++      return r;
+     }
+ 
+     // set dummy encryption policy
+@@ -7398,7 +7400,8 @@ int Client::fscrypt_dummy_encryption() {
+     memcpy(key_spec.u.identifier, keyid, FSCRYPT_KEY_IDENTIFIER_SIZE);
+     arg.removal_status_flags = 0;
+     arg.key_spec = key_spec;
+-    r = remove_fscrypt_key(&arg);
++    // Preserve the original failure; don't mask it with the removal result.
++    remove_fscrypt_key(&arg);
+     return r;
+ }
+ #endif

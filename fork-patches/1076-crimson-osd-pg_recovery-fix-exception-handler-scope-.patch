@@ -1,0 +1,42 @@
+From 98c61fcbce7769332de1ad8f4f44a57fd4a7610f Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Tue, 30 Jun 2026 05:06:46 -0700
+Subject: [PATCH 2/5] crimson/osd/pg_recovery: fix exception handler scope in
+ recover_missing
+
+Member access binds tighter than the ternary operator, so
+
+  with_throttle ? a : b.handle_exception_interruptible(...)
+
+attached the handler only to the non-throttled branch. When
+with_throttle was true, exceptions from recover_object_with_throttle()
+escaped unhandled. Parenthesize the ternary so the handler covers both
+branches.
+
+Broken by 791772f1c032, which added the ?: without parentheses.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/crimson/osd/pg_recovery.cc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/crimson/osd/pg_recovery.cc b/src/crimson/osd/pg_recovery.cc
+index 7b252e212cf..8181a0d6f89 100644
+--- a/src/crimson/osd/pg_recovery.cc
++++ b/src/crimson/osd/pg_recovery.cc
+@@ -319,10 +319,10 @@ PGRecovery::recover_missing(
+     } else {
+       return recovering.wait_track_blocking(
+ 	trigger,
+-	with_throttle
++	(with_throttle
+ 	  ? recover_object_with_throttle(soid, need)
+ 	  : recover_object(soid, need)
+-	.handle_exception_interruptible(
++	).handle_exception_interruptible(
+ 	  [=, this, soid = std::move(soid)] (auto e) {
+ 	  on_failed_recover({ pg->get_pg_whoami() }, soid, need);
+ 	  return seastar::make_ready_future<>();
+-- 
+2.54.0
+
