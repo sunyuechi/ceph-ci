@@ -39,9 +39,6 @@ TREE_PATCHES=(
 	1048-script-run-make-enable-ASan.patch
 
 	# todo
-	1049-crimson-os-tolerate-duplicate-symbols-when-linking-w.patch
-
-	# todo
 	1052-osd-ECBackend-fix-iterator-invalidation-in-omap_get.patch
 	1053-osd-ECOmapJournal-bind-by-reference-when-clearing-om.patch
 	1054-osd-PeeringState-avoid-dereferencing-olog-end-in-pro.patch
@@ -68,14 +65,10 @@ TREE_PATCHES=(
 	1067-mds-Server-return-after-responding-on-error-paths.patch
 	# https://github.com/ceph/ceph/pull/69822
 	1068-common-pick_address-match-against-the-current-iface-.patch
-	# https://github.com/ceph/ceph/pull/69836
-	1069-librbd-fix-use-after-free-in-trash-purge-on-image-op.patch
 	# https://github.com/ceph/ceph/pull/69821
 	1070-rgw-fix-inverted-MFA-check-in-DeleteMultiObj-for-ver.patch
 	1071-rgw-posix-fix-inverted-If-None-Match-check-allowing-.patch
 	1072-rgw-sts-fix-inverted-tokenCode-length-validation.patch
-	# https://github.com/ceph/ceph/pull/69820
-	1073-blk-aio-fix-mismatched-parenthesis-in-POSIX-AIO-subm.patch
 	# https://github.com/ceph/ceph/pull/69819
 	1074-blk-spdk-call-spdk_env_opts_init-before-setting-pci-.patch
 
