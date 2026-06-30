@@ -1,0 +1,45 @@
+From 1ed9152720297870752447307bbe2b6f49f2169e Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Tue, 30 Jun 2026 05:06:39 -0700
+Subject: [PATCH 1/5] crimson/osd/replicated_recovery_backend: fix
+ use-after-move in stats
+
+_handle_pull_response() moved `data` and `push_op.omap_entries` into
+submit_push_data() (which takes both by value) and only afterwards read
+data.length() and omap_entries.size(). Both were moved-from by then, so
+num_bytes_recovered and num_keys_recovered always increased by 0.
+
+Capture the lengths before the move.
+
+Introduced by cfcbb82956a0, which reads the counters after the move.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/crimson/osd/replicated_recovery_backend.cc | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/crimson/osd/replicated_recovery_backend.cc b/src/crimson/osd/replicated_recovery_backend.cc
+index 6d43707e14f..ca57f5c6d7a 100644
+--- a/src/crimson/osd/replicated_recovery_backend.cc
++++ b/src/crimson/osd/replicated_recovery_backend.cc
+@@ -919,14 +919,15 @@ ReplicatedRecoveryBackend::_handle_pull_response(
+ 		     push_op.data_included, push_op.data);
+   bool complete = pull_info.is_complete();
+   bool clear_omap = !push_op.before_progress.omap_complete;
++  const auto bytes_recovered = data.length();
++  const auto keys_recovered = push_op.omap_entries.size();
+   co_await submit_push_data(pull_info.recovery_info,
+ 			    first, complete, clear_omap,
+                             std::move(data_zeros), std::move(usable_intervals),
+                             std::move(data), std::move(push_op.omap_header),
+                             push_op.attrset, std::move(push_op.omap_entries), &t);
+ 
+-  const auto bytes_recovered = data.length();
+-  pull_info.stat.num_keys_recovered += push_op.omap_entries.size();
++  pull_info.stat.num_keys_recovered += keys_recovered;
+   pull_info.stat.num_bytes_recovered += bytes_recovered;
+ 
+   if (complete) {
+-- 
+2.54.0
+

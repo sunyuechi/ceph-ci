@@ -32,11 +32,13 @@ TREE_PATCHES=(
 	1041-test_DiffIterate.cc.patch
 
 	# https://github.com/ceph/ceph/pull/69680
+	# ASan-guarded test shrinks (__has_feature(address_sanitizer)); no-ops without
+	# ASan, so applied unconditionally. ASan itself is opt-in via WITH_ASAN in
+	# run-build-check.sh (-DWITH_ASAN=ON), which replaces former patch 1048.
 	1045-test-crimson-omap-enlarge-values-under-ASan-to-shrin.patch
 	# todo
 	1046-test-crimson-onode-shrink-synthetic-pool-under-ASan.patch
 	1047-test-transaction_manager-shrink-working-set-under-AS.patch
-	1048-script-run-make-enable-ASan.patch
 
 	# todo
 	1052-osd-ECBackend-fix-iterator-invalidation-in-omap_get.patch
@@ -71,6 +73,16 @@ TREE_PATCHES=(
 	1072-rgw-sts-fix-inverted-tokenCode-length-validation.patch
 	# https://github.com/ceph/ceph/pull/69819
 	1074-blk-spdk-call-spdk_env_opts_init-before-setting-pci-.patch
+
+	# todo
+	1075-crimson-osd-replicated_recovery_backend-fix-use-afte.patch
+	1076-crimson-osd-pg_recovery-fix-exception-handler-scope-.patch
+	1077-crimson-mon-MonClient-fix-use-after-free-in-run_comm.patch
+	1078-crimson-osd-ec_backend-add-missing-break-in-transact.patch
+	1079-crimson-osd-ec_backend-fix-OP_OMAP_RMKEYRANGE-transl.patch
+
+	# todo
+	1080-cmake-keep-seastar-s-Seastar_SANITIZE-in-lockstep-wi.patch
 
     # -- 2xxx: openRuyi downstream, not for upstream --
     # bump pylint 2.6.0 -> 2.17.7 for py3.13 / wrapt compat

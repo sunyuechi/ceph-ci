@@ -1,0 +1,43 @@
+From de4c9e018668b9045b9cf53ac204266a97fb155a Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Tue, 30 Jun 2026 05:19:38 -0700
+Subject: [PATCH 5/5] crimson/osd/ec_backend: fix OP_OMAP_RMKEYRANGE
+ translation
+
+transate_transaction() handled OP_OMAP_RMKEYRANGE in the same case
+block as OP_OMAP_SETHEADER, decoding a single bufferlist and calling
+omap_setheader(). But OP_OMAP_RMKEYRANGE encodes first/last as two
+strings, so decode_bl() misreads the stream and the wrong op is
+applied.
+
+Give OP_OMAP_RMKEYRANGE its own case: decode the two strings and
+re-encode them into the string[2] bufferlist that
+PGTransaction::omap_rmkeyrange() expects.
+
+Mishandled since the initial translation in bdc4aecf1f0f.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/crimson/osd/ec_backend.cc | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/crimson/osd/ec_backend.cc b/src/crimson/osd/ec_backend.cc
+index dec93eaf087..63f3e856b61 100644
+--- a/src/crimson/osd/ec_backend.cc
++++ b/src/crimson/osd/ec_backend.cc
+@@ -176,6 +176,12 @@ struct ECCrimsonOp : ECCommon::RMWPipeline::Op {
+ 	}
+ 	break;
+       case ceph::os::Transaction::OP_OMAP_RMKEYRANGE:
++	{
++	std::string first = i.decode_string();
++	std::string last = i.decode_string();
++	t_pg->omap_rmkeyrange(i.get_oid(op->oid).hobj, first, last);
++	}
++	break;
+       case ceph::os::Transaction::OP_OMAP_SETHEADER:
+ 	{
+ 	ceph::bufferlist bl;
+-- 
+2.54.0
+

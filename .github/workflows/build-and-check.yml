@@ -9,7 +9,7 @@ name: build-and-check
 #   spec-openruyi · sg2044
 #   spec-upstream · sg2044
 # openruyi_spec wins if both spec toggles are ticked (see the step `if:` conditions).
-run-name: ${{ inputs.openruyi_spec && 'spec-openruyi' || (inputs.upstream_spec && 'spec-upstream' || 'build-check') }} · ${{ inputs.runner || 'sg2044' }}
+run-name: ${{ inputs.openruyi_spec && 'spec-openruyi' || (inputs.upstream_spec && 'spec-upstream' || (inputs.with_asan && 'build-check-asan' || 'build-check')) }} · ${{ inputs.runner || 'sg2044' }}
 
 on:
   workflow_dispatch:
@@ -64,6 +64,10 @@ on:
         description: "Skip the registry image pull; reuse the cached local image (use when the registry is down)"
         type: boolean
         default: false
+      with_asan:
+        description: "build-check path: build with AddressSanitizer (-DWITH_ASAN=ON) in a SEPARATE build-check-asan bucket (own checkout/build/sccache). Default off. No-op on the spec paths."
+        type: boolean
+        default: false
 
 # Per-board group: each board cancels only its own previous run, so sg2044 and
 # sg2042 can build in parallel.
@@ -110,6 +114,9 @@ jobs:
       # Set to "1" when the form ticks offline, so fetch-openruyi-image.sh reuses
       # the existing local image instead of pulling (registry down / 502).
       OFFLINE: ${{ inputs.offline && '1' || '0' }}
+      # build-check path only: ticked -> build with -DWITH_ASAN=ON in the separate
+      # build-check-asan bucket. Default unset -> no ASan, build-check bucket.
+      WITH_ASAN: ${{ inputs.with_asan && '1' || '' }}
       # GIT_PROXY left UNSET so the script auto-probes the proxy
       # (CI_PROXY_PROBE default http://10.200.1.1:8888) and uses it; defining it
       # (even to "" via an absent secret) skips the probe -> direct.
@@ -147,10 +154,12 @@ jobs:
         if: ${{ always() && !inputs.openruyi_spec && !inputs.upstream_spec }}
         run: |
           mkdir -p artifacts
-          cp -L "$WORKDIR/build-check/run.log" artifacts/ 2>/dev/null || true
-          cp "$WORKDIR"/build-check/ceph/build/Testing/Temporary/LastTest.log* artifacts/ 2>/dev/null || true
-          cp "$WORKDIR"/build-check/ceph/build/CMakeCache.txt artifacts/ 2>/dev/null || true
-          cp "$WORKDIR"/build-check/ceph/build/core* artifacts/ 2>/dev/null || true
+          # Same bucket the build wrote to: build-check, or build-check-asan when WITH_ASAN.
+          BUCKET="build-check${{ inputs.with_asan && '-asan' || '' }}"
+          cp -L "$WORKDIR/$BUCKET/run.log" artifacts/ 2>/dev/null || true
+          cp "$WORKDIR/$BUCKET"/ceph/build/Testing/Temporary/LastTest.log* artifacts/ 2>/dev/null || true
+          cp "$WORKDIR/$BUCKET"/ceph/build/CMakeCache.txt artifacts/ 2>/dev/null || true
+          cp "$WORKDIR/$BUCKET"/ceph/build/core* artifacts/ 2>/dev/null || true
 
       - name: Stage artifacts (spec-openruyi)
         if: ${{ always() && inputs.openruyi_spec }}
@@ -185,6 +194,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           # distinct names so each path's artifacts aren't mislabeled as another's
-          name: ${{ inputs.openruyi_spec && 'spec-openruyi-artifacts' || (inputs.upstream_spec && 'spec-upstream-artifacts' || 'build-check-artifacts') }}
+          name: ${{ inputs.openruyi_spec && 'spec-openruyi-artifacts' || (inputs.upstream_spec && 'spec-upstream-artifacts' || (inputs.with_asan && 'build-check-asan-artifacts' || 'build-check-artifacts')) }}
           if-no-files-found: ignore
           path: artifacts/
