@@ -1,0 +1,41 @@
+From d78ced5984122fe9f22e93af8a48cb926491d3cc Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Wed, 1 Jul 2026 02:59:15 -0700
+Subject: [PATCH 02/10] rados: do not close stdin after put/append from '-'
+
+do_put() and do_append() default `fd` to STDIN_FILENO when the
+input is '-', but the cleanup guarded close() with
+`fd != STDOUT_FILENO`, which is always true, so stdin (fd 0) was
+closed instead of being left alone. Guard on STDIN_FILENO to match
+how the descriptor was obtained.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/tools/rados/rados.cc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/tools/rados/rados.cc b/src/tools/rados/rados.cc
+index 42103648b6b..118359be582 100644
+--- a/src/tools/rados/rados.cc
++++ b/src/tools/rados/rados.cc
+@@ -649,7 +649,7 @@ static int do_put(IoCtx& io_ctx,
+   }
+   ret = 0;
+  out:
+-  if (fd != STDOUT_FILENO)
++  if (fd != STDIN_FILENO)
+     VOID_TEMP_FAILURE_RETRY(close(fd));
+   return ret;
+ }
+@@ -684,7 +684,7 @@ static int do_append(IoCtx& io_ctx,
+   }
+   ret = 0;
+ out:
+-  if (fd != STDOUT_FILENO)
++  if (fd != STDIN_FILENO)
+     VOID_TEMP_FAILURE_RETRY(close(fd));
+   return ret;
+ }
+-- 
+2.54.0
+

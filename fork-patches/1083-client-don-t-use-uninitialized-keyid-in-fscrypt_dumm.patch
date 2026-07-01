@@ -1,0 +1,49 @@
+From 3bbcba6ae78a9b015cd181dbc79ad1c2c7462fca Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Wed, 1 Jul 2026 01:58:17 -0700
+Subject: [PATCH 3/3] client: don't use uninitialized keyid in
+ fscrypt_dummy_encryption
+
+When add_fscrypt_key() failed it jumped to the err label, which then
+read the uninitialized keyid buffer into a key specifier and issued a
+key removal for it. add_fscrypt_key() only populates keyid on success,
+so this read uninitialized stack memory. Return the error directly
+instead, since no key was added and there is nothing to remove.
+
+Also stop overwriting the original error with remove_fscrypt_key()'s
+return value on the policy-set failure path, so the real failure is
+reported to the caller.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/client/Client.cc | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/src/client/Client.cc b/src/client/Client.cc
+index fcac11545e7..7ee0d2af3d5 100644
+--- a/src/client/Client.cc
++++ b/src/client/Client.cc
+@@ -7372,7 +7372,9 @@ int Client::fscrypt_dummy_encryption() {
+     char keyid[FSCRYPT_KEY_IDENTIFIER_SIZE];
+     int r = add_fscrypt_key(key, sizeof(key), keyid);
+     if (r < 0) {
+-      goto err;
++      // The key was not added, so keyid is not populated and there is
++      // nothing to remove.
++      return r;
+     }
+ 
+     // set dummy encryption policy
+@@ -7398,7 +7400,8 @@ int Client::fscrypt_dummy_encryption() {
+     memcpy(key_spec.u.identifier, keyid, FSCRYPT_KEY_IDENTIFIER_SIZE);
+     arg.removal_status_flags = 0;
+     arg.key_spec = key_spec;
+-    r = remove_fscrypt_key(&arg);
++    // Preserve the original failure; don't mask it with the removal result.
++    remove_fscrypt_key(&arg);
+     return r;
+ }
+ #endif
+-- 
+2.54.0
+

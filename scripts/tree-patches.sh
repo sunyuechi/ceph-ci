@@ -90,6 +90,23 @@ TREE_PATCHES=(
 	# todo
 	1080-cmake-keep-seastar-s-Seastar_SANITIZE-in-lockstep-wi.patch
 
+	# todo
+	1081-client-fix-double-unlock-of-client_lock-in-mount.patch
+	1082-client-fix-_wrap_name-reporting-success-on-encryptio.patch
+	1083-client-don-t-use-uninitialized-keyid-in-fscrypt_dumm.patch
+	1084-osdc-fix-ReplicaSplitOp-picking-an-invalid-acting-in.patch
+	1085-mgr-DaemonServer-fix-order-dependent-ok-to-stop-fals.patch
+	1086-rados-do-not-close-stdin-after-put-append-from.patch
+	1087-rados-fix-leaked-unflushed-output-stream-in-ls.patch
+	1088-rados-do-not-close-stdout-after-export-to.patch
+	1089-ceph_dedup-avoid-divide-by-zero-in-EstimateResult-du.patch
+	1090-ceph_dedup-write-chunk-data-at-offset-0-in-make_dedu.patch
+	1091-ceph_dedup-validate-sampling-ratio-range-in-daemon.patch
+	1092-cephfs-data-scan-increment-progress-in-scan_frags.patch
+	1093-cephfs-bench-reject-a-block-size-of-0.patch
+	1094-cephfs-bench-fix-invalid-short-option-name-for-files.patch
+	1095-kv-rocksdb_cache-fix-BinnedLRUCache-l_elems-counter-.patch
+
     # -- 2xxx: openRuyi downstream, not for upstream --
     # bump pylint 2.6.0 -> 2.17.7 for py3.13 / wrapt compat
     2001-monitoring-ceph-mixin-bump-pylint.patch

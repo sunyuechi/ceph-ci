@@ -1,0 +1,32 @@
+From 601082bad334310c1889dd2523e6470bc835aec6 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Wed, 1 Jul 2026 02:59:15 -0700
+Subject: [PATCH 04/10] rados: do not close stdout after 'export' to '-'
+
+'export' sets file_fd to STDOUT_FILENO when the destination is '-',
+but the cleanup guarded close() with `file_fd != STDIN_FILENO`,
+which is always true, closing stdout. Guard on STDOUT_FILENO
+instead; the 'import' path already does the analogous
+STDIN_FILENO check.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/tools/rados/rados.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/tools/rados/rados.cc b/src/tools/rados/rados.cc
+index 81ef10f6fd8..556d4d6d0f1 100644
+--- a/src/tools/rados/rados.cc
++++ b/src/tools/rados/rados.cc
+@@ -4091,7 +4091,7 @@ static int rados_tool_common(const std::map < std::string, std::string > &opts,
+ 
+     ret = PoolDump(file_fd).dump(&io_ctx);
+ 
+-    if (file_fd != STDIN_FILENO) {
++    if (file_fd != STDOUT_FILENO) {
+       VOID_TEMP_FAILURE_RETRY(::close(file_fd));
+     }
+ 
+-- 
+2.54.0
+
