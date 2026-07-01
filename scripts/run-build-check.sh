@@ -453,6 +453,15 @@ declare -a TD_TMPFS_ARGS=(
     --extra="--volume=${TD_TMPFS_DIR}:/ceph/build/td:Z"
 )
 
+# 3i. podman's default seccomp profile (v4.9.4) has no riscv_hwprobe (syscall 258),
+#     so it returns ENOSYS in-container. ceph_arch_riscv_probe() then leaves
+#     ceph_arch_riscv_{rvv,zbc,zvbc}=0 -> RISC-V crc32c accel stays off AND
+#     unittest_arch's cpuinfo-vs-probe check fails. Unconfine seccomp for the ctest
+#     run so hwprobe works. STEPS (ctest) run only; configure doesn't need it.
+declare -a SECCOMP_ARGS=(
+    --extra="--security-opt=seccomp=unconfined"
+)
+
 # 4a. Container networking for proxied hosts (only when GIT_PROXY set). The proxy is a
 #     routable IP, so both the bwc image-build and run containers reach it over the
 #     default bridge net -- no host net needed. Export *_proxy so the image build and
@@ -575,6 +584,7 @@ if [ "${RC}" -eq 0 ]; then
         "${NET_ARGS[@]}" \
         "${BUILD_TUNE_ARGS[@]}" \
         "${TD_TMPFS_ARGS[@]}" \
+        "${SECCOMP_ARGS[@]}" \
         --extra="-eCHECK_MAKEOPTS=${CHECK_MAKEOPTS}" \
         --extra="-eMAX_PARALLEL_JOBS=${MAX_PARALLEL_JOBS}" \
         --extra="-eCONFIGURE_ARGS=${CONFIGURE_ARGS}" \
