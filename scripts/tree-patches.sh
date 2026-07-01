@@ -88,10 +88,10 @@ TREE_PATCHES=(
 	# todo
 	1080-cmake-keep-seastar-s-Seastar_SANITIZE-in-lockstep-wi.patch
 
+	# https://github.com/ceph/ceph/pull/69880
+	1081-fix-client.patch
+
 	# todo
-	1081-client-fix-double-unlock-of-client_lock-in-mount.patch
-	1082-client-fix-_wrap_name-reporting-success-on-encryptio.patch
-	1083-client-don-t-use-uninitialized-keyid-in-fscrypt_dumm.patch
 	1084-osdc-fix-ReplicaSplitOp-picking-an-invalid-acting-in.patch
 	1085-mgr-DaemonServer-fix-order-dependent-ok-to-stop-fals.patch
 	1086-rados-do-not-close-stdin-after-put-append-from.patch
