@@ -296,7 +296,11 @@ SUBMODULE_PATCHES=(
 for name in "${TREE_PATCHES[@]}"; do
     p="${REPO_ROOT}/fork-patches/${name}"
     [ -e "$p" ] || { echo "ERROR: listed patch not found: ${name}" >&2; exit 1; }
-    if git -C "${CEPH_SRC}" apply --reverse --check "$p" 2>/dev/null; then
+    # --index is required: without it --check runs against the worktree, where a
+    # submodule is a directory with no blob to compare, so gitlink-only patches
+    # (1065, 1098) pass --reverse --check regardless of the current gitlink and get
+    # falsely skipped as "already applied". --index compares the index gitlink.
+    if git -C "${CEPH_SRC}" apply --reverse --check --index "$p" 2>/dev/null; then
         echo "patch already applied upstream, skipping: ${name}"
         continue
     fi
