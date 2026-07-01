@@ -94,9 +94,9 @@ TREE_PATCHES=(
 	# todo
 	1084-osdc-fix-ReplicaSplitOp-picking-an-invalid-acting-in.patch
 	1085-mgr-DaemonServer-fix-order-dependent-ok-to-stop-fals.patch
-	1086-rados-do-not-close-stdin-after-put-append-from.patch
-	1087-rados-fix-leaked-unflushed-output-stream-in-ls.patch
-	1088-rados-do-not-close-stdout-after-export-to.patch
+	# https://github.com/ceph/ceph/pull/69885
+	1086-rados-clean.patch
+	# todo
 	1089-ceph_dedup-avoid-divide-by-zero-in-EstimateResult-du.patch
 	1090-ceph_dedup-write-chunk-data-at-offset-0-in-make_dedu.patch
 	1091-ceph_dedup-validate-sampling-ratio-range-in-daemon.patch
