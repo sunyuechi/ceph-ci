@@ -105,6 +105,10 @@ TREE_PATCHES=(
 	1094-cephfs-bench-fix-invalid-short-option-name-for-files.patch
 	1095-kv-rocksdb_cache-fix-BinnedLRUCache-l_elems-counter-.patch
 
+	1096-test-common-add-RISC-V-CRC32C-performance-benchmark-.patch
+	1097-test-add-RISC-V-architecture-probe-tests.patch
+	1098-src-xxHash-sync-with-upstream-to-enable-RISC-V-RVV-o.patch
+
     # -- 2xxx: openRuyi downstream, not for upstream --
     # bump pylint 2.6.0 -> 2.17.7 for py3.13 / wrapt compat
     2001-monitoring-ceph-mixin-bump-pylint.patch
