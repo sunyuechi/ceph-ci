@@ -11,8 +11,6 @@ TREE_PATCHES=(
     1003-openruyi-spec.patch
 	# https://github.com/ceph/ceph/pull/69448
     1004-pmdk-riscv64-use-daos-stack.patch
-    # https://github.com/ceph/ceph/pull/69156
-    1007-monitoring-jsonnet-bundler-v0.6.0.patch
 	# https://github.com/ceph/ceph/pull/69455
     1012-test-crimson-messenger-thrash-bump-memory.patch
 	# https://github.com/ceph/ceph/pull/69520
