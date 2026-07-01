@@ -51,9 +51,11 @@ TREE_PATCHES=(
 
 	#todo
 	1058-osd-guard-max_element-end-deref-in-get_health_metric.patch
+	# https://github.com/ceph/ceph/pull/69746
 	1059-osd-fix-osd_reqid_t-comparison-strict-weak-ordering.patch
 	1060-osd-fix-misspelled-inject-ec-clear-command-names.patch
 	1061-osd-dump_osd_network-min-section-now-reports-min-not.patch
+	# https://github.com/ceph/ceph/pull/69865
 	1062-osd-report-EINVAL-to-on_finish-in-asok_route_to_pg-c.patch
 	1063-osd-drop-bogus-snaps-key-in-rollback_extents-dump.patch
 	1064-osd-avoid-inserting-empty-OI_ATTR-in-rollback_setatt.patch
@@ -74,12 +76,16 @@ TREE_PATCHES=(
 	# https://github.com/ceph/ceph/pull/69819
 	1074-blk-spdk-call-spdk_env_opts_init-before-setting-pci-.patch
 
-	# todo
+	# https://github.com/ceph/ceph/pull/69863
 	1075-crimson-osd-replicated_recovery_backend-fix-use-afte.patch
+	# todo
 	1076-crimson-osd-pg_recovery-fix-exception-handler-scope-.patch
+
+	# https://github.com/ceph/ceph/pull/69862
 	1077-crimson-mon-MonClient-fix-use-after-free-in-run_comm.patch
-	1078-crimson-osd-ec_backend-add-missing-break-in-transact.patch
-	1079-crimson-osd-ec_backend-fix-OP_OMAP_RMKEYRANGE-transl.patch
+
+	# https://github.com/ceph/ceph/pull/69855
+	1078-fix-crimson-osd-ec_backend.patch
 
 	# todo
 	1080-cmake-keep-seastar-s-Seastar_SANITIZE-in-lockstep-wi.patch
