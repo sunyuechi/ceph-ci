@@ -109,6 +109,10 @@ TREE_PATCHES=(
 	1097-test-add-RISC-V-architecture-probe-tests.patch
 	1098-src-xxHash-sync-with-upstream-to-enable-RISC-V-RVV-o.patch
 
+	1099-librbd-cache-pwl-fix-deadlock-in-AbstractWriteLog-de.patch
+	1100-librbd-cache-pwl-join-tp_pwl-workers-before-derived-.patch
+	1101-librbd-cache-pwl-cancel-periodic-stats-timer-in-dest.patch
+
     # -- 2xxx: openRuyi downstream, not for upstream --
     # bump pylint 2.6.0 -> 2.17.7 for py3.13 / wrapt compat
     2001-monitoring-ceph-mixin-bump-pylint.patch
