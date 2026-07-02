@@ -1,0 +1,89 @@
+From 739c2a859acaee5fe4a03b12be9316811c315c3d Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Wed, 1 Jul 2026 19:43:55 -0700
+Subject: [PATCH 2/3] librbd/cache/pwl: join tp_pwl workers before derived
+ teardown
+
+Base destructors run last, so the join in ~AbstractWriteLog happens
+after ~ssd::WriteLog/~rwl::WriteLog have already destroyed derived
+members; a worker still draining an in-flight op can hit them
+use-after-free. Join the workers at the top of each most-derived
+destructor via a new stop_thread_pool() helper, keeping the join in
+~AbstractWriteLog as a backstop.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/librbd/cache/pwl/AbstractWriteLog.cc | 7 ++++++-
+ src/librbd/cache/pwl/AbstractWriteLog.h  | 5 +++++
+ src/librbd/cache/pwl/rwl/WriteLog.cc     | 1 +
+ src/librbd/cache/pwl/ssd/WriteLog.cc     | 1 +
+ 4 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/src/librbd/cache/pwl/AbstractWriteLog.cc b/src/librbd/cache/pwl/AbstractWriteLog.cc
+index 63960b41e62..891bbba44f3 100644
+--- a/src/librbd/cache/pwl/AbstractWriteLog.cc
++++ b/src/librbd/cache/pwl/AbstractWriteLog.cc
+@@ -84,7 +84,7 @@ AbstractWriteLog<I>::AbstractWriteLog(
+ template <typename I>
+ AbstractWriteLog<I>::~AbstractWriteLog() {
+   ldout(m_image_ctx.cct, 15) << "enter" << dendl;
+-  m_thread_pool.stop();
++  stop_thread_pool();
+   {
+     std::lock_guard locker(m_lock);
+     ceph_assert(m_deferred_ios.size() == 0);
+@@ -98,6 +98,11 @@ AbstractWriteLog<I>::~AbstractWriteLog() {
+   ldout(m_image_ctx.cct, 15) << "exit" << dendl;
+ }
+ 
++template <typename I>
++void AbstractWriteLog<I>::stop_thread_pool() {
++  m_thread_pool.stop();
++}
++
+ template <typename I>
+ void AbstractWriteLog<I>::perf_start(std::string name) {
+   PerfCountersBuilder plb(m_image_ctx.cct, name, l_librbd_pwl_first,
+diff --git a/src/librbd/cache/pwl/AbstractWriteLog.h b/src/librbd/cache/pwl/AbstractWriteLog.h
+index b33acef877e..9dd095e83f0 100644
+--- a/src/librbd/cache/pwl/AbstractWriteLog.h
++++ b/src/librbd/cache/pwl/AbstractWriteLog.h
+@@ -328,6 +328,11 @@ protected:
+ 
+   ContextWQ m_work_queue;
+ 
++  /* Joins the tp_pwl workers. Every most-derived destructor must call
++   * this before destroying any members a worker may still touch; the
++   * call in ~AbstractWriteLog is only a backstop and runs too late to
++   * protect derived members. Safe to call more than once. */
++  void stop_thread_pool();
+   void wake_up();
+ 
+   void update_entries(
+diff --git a/src/librbd/cache/pwl/rwl/WriteLog.cc b/src/librbd/cache/pwl/rwl/WriteLog.cc
+index 0a891ceaed5..2f048af18f3 100644
+--- a/src/librbd/cache/pwl/rwl/WriteLog.cc
++++ b/src/librbd/cache/pwl/rwl/WriteLog.cc
+@@ -55,6 +55,7 @@ WriteLog<I>::WriteLog(
+ 
+ template <typename I>
+ WriteLog<I>::~WriteLog() {
++  this->stop_thread_pool();
+   m_log_pool = nullptr;
+   delete m_builderobj;
+ }
+diff --git a/src/librbd/cache/pwl/ssd/WriteLog.cc b/src/librbd/cache/pwl/ssd/WriteLog.cc
+index 42f04692cc0..0f4c308f521 100644
+--- a/src/librbd/cache/pwl/ssd/WriteLog.cc
++++ b/src/librbd/cache/pwl/ssd/WriteLog.cc
+@@ -63,6 +63,7 @@ WriteLog<I>::WriteLog(
+ 
+ template <typename I>
+ WriteLog<I>::~WriteLog() {
++  this->stop_thread_pool();
+   delete m_builderobj;
+ }
+ 
+-- 
+2.54.0
+

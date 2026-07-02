@@ -1,4 +1,4 @@
-From 97729d269a7f9b6a29e88cb91247f7991634a86c Mon Sep 17 00:00:00 2001
+From 517f9ce8f4d335d4a7e20518029189816f63e7d3 Mon Sep 17 00:00:00 2001
 From: Sun Yuechi <sunyuechi@iscas.ac.cn>
 Date: Tue, 23 Jun 2026 20:48:12 +0800
 Subject: [PATCH] test/crimson/omap: enlarge values under ASan to shrink
@@ -9,13 +9,16 @@ the tree to a fixed depth, so under ASan a larger value reaches the same
 depth (same split/merge paths) with far fewer keys. It stays below the
 per-kv limit so inserts keep the normal path.
 
+Scale the extent-count bound in innernode_split_merge_balancing with the
+value size accordingly.
+
 Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
 ---
- .../crimson/seastore/test_omap_manager.cc     | 23 +++++++++++++++----
- 1 file changed, 18 insertions(+), 5 deletions(-)
+ .../crimson/seastore/test_omap_manager.cc     | 27 ++++++++++++++-----
+ 1 file changed, 21 insertions(+), 6 deletions(-)
 
 diff --git a/src/test/crimson/seastore/test_omap_manager.cc b/src/test/crimson/seastore/test_omap_manager.cc
-index 2504771d1a6..0479705b2dc 100644
+index 2a0fb452d79..c5ecb96360e 100644
 --- a/src/test/crimson/seastore/test_omap_manager.cc
 +++ b/src/test/crimson/seastore/test_omap_manager.cc
 @@ -25,6 +25,19 @@ namespace {
@@ -38,7 +41,7 @@ index 2504771d1a6..0479705b2dc 100644
  std::string rand_name(const int len)
  {
    std::string ret;
-@@ -545,7 +558,7 @@ TEST_P(omap_manager_test_t, innernode_split_merge_balancing)
+@@ -572,7 +585,7 @@ TEST_P(omap_manager_test_t, innernode_split_merge_balancing)
        for (int i = 0; i < 64; i++) {
          // Use large value size to accelerate tree growth.
          auto key = rand_name(STR_LEN);
@@ -47,7 +50,7 @@ index 2504771d1a6..0479705b2dc 100644
        }
        submit_transaction(std::move(t));
      }
-@@ -559,7 +572,7 @@ TEST_P(omap_manager_test_t, innernode_split_merge_balancing)
+@@ -586,7 +599,7 @@ TEST_P(omap_manager_test_t, innernode_split_merge_balancing)
      for (unsigned i = 0; i < keys_for_leaf_split; ++i) {
        // Use large value size to accelerate tree growth.
        auto key = rand_name(STR_LEN);
@@ -56,7 +59,18 @@ index 2504771d1a6..0479705b2dc 100644
        if (i % 64 == 0) {
          submit_transaction(std::move(t));
          t = create_mutate_transaction();
-@@ -688,7 +701,7 @@ TEST_P(omap_manager_test_t, omap_iterate)
+@@ -613,7 +626,9 @@ TEST_P(omap_manager_test_t, innernode_split_merge_balancing)
+                    final_count);
+     // Bound derivation: 64 KiB OMAP_LEAF_BLOCK_SIZE / ~580 B entry size (50 B key + 512 B value
+     // + overhead) => healthy post-merge leaves hold >=55 entries, so count is <= size / 55 + C.
+-    EXPECT_LE(final_count, test_omap_mappings.size() / 40 + 20U);
++    // Scale with the value size; at 512 B this is the original size / 40.
++    const unsigned entries_per_leaf = std::max(40 * 512 / tree_growth_value_size, 1);
++    EXPECT_LE(final_count, test_omap_mappings.size() / entries_per_leaf + 20U);
+ 
+     logger().debug("== clearing entire tree and verifying no leaks");
+     auto t_clear = create_mutate_transaction();
+@@ -728,7 +743,7 @@ TEST_P(omap_manager_test_t, omap_iterate)
          for (unsigned j = 0; j < 64; ++j) {
  	  // Use large value size to accelerate tree growth.
            auto key = rand_name(STR_LEN);
@@ -65,7 +79,7 @@ index 2504771d1a6..0479705b2dc 100644
            if (i == 3) {
              lower_key = key;
            }
-@@ -753,7 +766,7 @@ TEST_P(omap_manager_test_t, list)
+@@ -793,7 +808,7 @@ TEST_P(omap_manager_test_t, list)
            // Use large value size to accelerate tree growth.
            auto key = rand_name(STR_LEN);
            generated_keys.push_back(key);
@@ -74,7 +88,7 @@ index 2504771d1a6..0479705b2dc 100644
          }
          submit_transaction(std::move(t));
        } while (omap_root.depth < target_depth);
-@@ -884,7 +897,7 @@ TEST_P(omap_manager_test_t, monotonic_inc)
+@@ -924,7 +939,7 @@ TEST_P(omap_manager_test_t, monotonic_inc)
        auto t = create_mutate_transaction();
        for (int i = 0; i < 128; i++) {
          auto key = monotonic_inc();
@@ -84,5 +98,5 @@ index 2504771d1a6..0479705b2dc 100644
        }
        submit_transaction(std::move(t));
 -- 
-2.54.0
+2.55.0
 

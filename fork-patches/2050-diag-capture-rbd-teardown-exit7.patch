@@ -1,0 +1,82 @@
+diff --git a/src/test/run-rbd-unit-tests.sh b/src/test/run-rbd-unit-tests.sh
+index af33e058347..5a411364075 100755
+--- a/src/test/run-rbd-unit-tests.sh
++++ b/src/test/run-rbd-unit-tests.sh
+@@ -18,6 +18,68 @@ GTEST_FILTER+=":TestMigration.Stress*"
+ # exclude tests that are prone to sporadic failures
+ export GTEST_FILTER
+ 
++# --- openRuyi DIAGNOSTIC (fork patch 2050): capture the sporadic teardown exit of
++# unittest_librbd. The -N flake is: all 1502 tests pass, then the process dies with
++# a nonzero exit in the exit-handler/static-dtor phase (no core, stdout truncated).
++# Build a tiny LD_PRELOAD catcher once; on any nonzero or non-main-thread exit
++# (exit/_exit/_Exit/abort/fatal signal) it writes a symbolized backtrace to
++# $CEPH_BUILD_DIR/exit7-catch/catch-<pid>-*.log (persists on the mounted build dir)
++# and to stderr. Statically proven no raw exit_group bypasses the libc exit symbols,
++# so the caller of the teardown exit is always captured. Remove by dropping fork
++# patch 2050 from scripts/tree-patches.sh. See notes/rbd-teardown-exit7.md.
++export EXIT7_CATCHDIR="${CEPH_BUILD_DIR}/exit7-catch"
++mkdir -p "${EXIT7_CATCHDIR}"
++EXIT7_SO="${EXIT7_CATCHDIR}/libcatch2.so"
++if [ ! -e "${EXIT7_SO}" ] && command -v cc >/dev/null 2>&1; then
++  cat > "${EXIT7_CATCHDIR}/libcatch2.c" <<'CATCH_EOF'
++#define _GNU_SOURCE
++#include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
++#include <signal.h>
++#include <execinfo.h>
++#include <dlfcn.h>
++#include <string.h>
++#include <fcntl.h>
++#include <sys/stat.h>
++#include <sys/syscall.h>
++static const char* catchdir(void){ const char* d=getenv("EXIT7_CATCHDIR"); return (d&&*d)?d:"/tmp/exit7-catch"; }
++static int mytid(void){ return (int)syscall(SYS_gettid); }
++static int ismain(void){ return mytid()==getpid(); }
++static void dump(const char* tag, int code){
++  const char* dir=catchdir(); mkdir(dir,0755);
++  char path[256];
++  snprintf(path,sizeof path,"%s/catch-%d-%s-code%d.log",dir,getpid(),tag,code);
++  int fd=open(path,O_WRONLY|O_CREAT|O_APPEND,0644);
++  char hdr[256];
++  int n=snprintf(hdr,sizeof hdr,"\n=== %s pid=%d tid=%d main=%d code=%d ===\n",tag,getpid(),mytid(),ismain(),code);
++  void* bt[128]; int k=backtrace(bt,128);
++  if(fd>=0){ (void)write(fd,hdr,n); backtrace_symbols_fd(bt,k,fd); close(fd); }
++  (void)write(2,hdr,n); backtrace_symbols_fd(bt,k,2);
++}
++static void sigh(int sig, siginfo_t* si, void* uc){ (void)si;(void)uc; dump("SIGNAL",sig); signal(sig,SIG_DFL); raise(sig); }
++__attribute__((constructor)) static void init(void){
++  mkdir(catchdir(),0755);
++  struct sigaction sa; memset(&sa,0,sizeof sa);
++  sa.sa_sigaction=sigh; sa.sa_flags=SA_SIGINFO|SA_RESETHAND;
++  int sigs[]={SIGSEGV,SIGABRT,SIGBUS,SIGILL,SIGFPE,SIGPIPE,0};
++  for(int i=0;sigs[i];i++) sigaction(sigs[i],&sa,NULL);
++}
++typedef void (*exfn)(int);
++void _exit(int s){ static exfn r=0; if(!r) r=(exfn)dlsym(RTLD_NEXT,"_exit"); if(!ismain()||s) dump("_exit",s); r(s); for(;;); }
++void _Exit(int s){ static exfn r=0; if(!r) r=(exfn)dlsym(RTLD_NEXT,"_Exit"); if(!ismain()||s) dump("_Exit",s); r(s); for(;;); }
++void exit(int s){ static exfn r=0; if(!r) r=(exfn)dlsym(RTLD_NEXT,"exit"); if(!ismain()||s) dump("exit",s); r(s); for(;;); }
++void abort(void){ static void(*r)(void)=0; if(!r) r=(void(*)(void))dlsym(RTLD_NEXT,"abort"); dump("abort",6); r(); for(;;); }
++CATCH_EOF
++  cc -shared -fPIC -O0 -g -o "${EXIT7_SO}" "${EXIT7_CATCHDIR}/libcatch2.c" -ldl 2>>"${EXIT7_CATCHDIR}/build.log" || true
++fi
++if [ -e "${EXIT7_SO}" ]; then
++  # ASan requires its runtime first in LD_PRELOAD; empty on non-ASan builds.
++  ASAN_SO="$(ldd "$(command -v unittest_librbd)" 2>/dev/null | awk '/libasan\.so|libclang_rt\.asan/{print $3; exit}')"
++  unittest_librbd() { LD_PRELOAD="${ASAN_SO:+${ASAN_SO} }${EXIT7_SO}${LD_PRELOAD:+ ${LD_PRELOAD}}" command unittest_librbd "$@"; }
++fi
++# --- end openRuyi DIAGNOSTIC ---
++
+ if [ $# = 0 ]; then
+   # mimic the old behaviour
+   TESTS='0 1 61 109 127'
+@@ -25,7 +85,7 @@ if [ $# = 0 ]; then
+ elif [ $# = 1 -a "${1}" = N ] ; then
+   # new style no feature request
+   unset RBD_FEATURES; unittest_librbd
+-else 
++else
+   TESTS="$*"
+ fi
+ 

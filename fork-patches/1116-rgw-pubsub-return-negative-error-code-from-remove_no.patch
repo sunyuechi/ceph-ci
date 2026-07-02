@@ -1,0 +1,31 @@
+From faed0205a9117de41379a8062677165bad2e191a Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 29 Jun 2026 19:38:33 -0700
+Subject: [PATCH] rgw/pubsub: return negative error code from
+ remove_notification_v2
+
+remove_notification_v2() returned -ret on get_bucket_notifications()
+failure, flipping the negative error to positive so callers saw it as
+success. Return ret unchanged.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/rgw/rgw_pubsub.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/rgw/rgw_pubsub.cc b/src/rgw/rgw_pubsub.cc
+index 2a0993561ae..7f0c4337a9a 100644
+--- a/src/rgw/rgw_pubsub.cc
++++ b/src/rgw/rgw_pubsub.cc
+@@ -665,7 +665,7 @@ int remove_notification_v2(const DoutPrefixProvider* dpp,
+   rgw_pubsub_bucket_topics bucket_topics;
+   auto ret = get_bucket_notifications(dpp, bucket, bucket_topics);
+   if (ret < 0) {
+-    return -ret;
++    return ret;
+   }
+   // no notifications on the bucket.
+   if (bucket_topics.topics.empty()) {
+-- 
+2.55.0
+

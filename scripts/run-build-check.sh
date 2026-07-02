@@ -51,6 +51,9 @@
 #   SCCACHE_HOST_DIR    host dir bound as the in-container sccache cache so it
 #                       persists across runs (default ${WORKDIR}/build-check/sccache-cache)
 #   SCCACHE_CACHE_SIZE  sccache max cache size (default set below; sccache's own default is 5G)
+#   CCACHE_HOST_DIR     host dir bound as the in-container ccache cache so it
+#                       persists across runs (default ${WORKDIR}/build-check/ccache-cache)
+#   CCACHE_MAXSIZE      ccache max cache size (default set below; ccache's own default is 5G)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -290,7 +293,7 @@ source "${REPO_ROOT}/scripts/tree-patches.sh"
 # applied inside that submodule. Same skip convention as TREE_PATCHES.
 SUBMODULE_PATCHES=(
     # https://github.com/intel/isa-l/pull/412  (1xxx: upstream-bound)
-    src/isa-l/1006-isa-l-riscv64-rvv-raid-aliasing.patch
+    # src/isa-l/1006-isa-l-riscv64-rvv-raid-aliasing.patch
 )
 
 for name in "${TREE_PATCHES[@]}"; do
@@ -421,11 +424,21 @@ fi
 #           host dir to persist it across runs; a clean build/ still hits because
 #           sccache is content-addressed. Size past the 5G default, and disable the
 #           idle timeout that shut the server down mid-build (falling back to local).
+#   ccache: run-make.sh compiles ceph itself through sccache (-DWITH_SCCACHE=ON), but
+#           ExternalProjects driven by their own make (arrow's ARROW_USE_CCACHE, pmdk)
+#           still reach for ccache, and that cache dies with the --rm container the
+#           same way -> 0% hit. Bind it too. CCACHE_DIR pins the dir explicitly (ccache
+#           4.x otherwise picks ~/.ccache vs XDG by what exists) and puts ccache.conf
+#           where run-make.sh's save/restore_ccache_conf expects it. run-make.sh only
+#           raises max_size past the 5G default under in_jenkins, so set it here.
 SCCACHE_HOST_DIR="${SCCACHE_HOST_DIR:-${BASE}/sccache-cache}"
 SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-100G}"
-mkdir -p "${SCCACHE_HOST_DIR}"
+CCACHE_HOST_DIR="${CCACHE_HOST_DIR:-${BASE}/ccache-cache}"
+CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-20G}"
+mkdir -p "${SCCACHE_HOST_DIR}" "${CCACHE_HOST_DIR}"
 echo "  NPROC=${NPROC} (build -j / BOOST_J; ctest -j${CTEST_JOBS}; dencoder MAX_PARALLEL_JOBS=${MAX_PARALLEL_JOBS})"
 echo "  sccache: ${SCCACHE_HOST_DIR} -> /root/.cache/sccache (max ${SCCACHE_CACHE_SIZE})"
+echo "  ccache: ${CCACHE_HOST_DIR} -> /root/.ccache (max ${CCACHE_MAXSIZE})"
 declare -a BUILD_TUNE_ARGS=(
     --extra="-eNPROC=${NPROC}"
     # Debug build type makes run-make.sh inject -Werror; disable it to first get green.
@@ -436,6 +449,9 @@ declare -a BUILD_TUNE_ARGS=(
     --extra="-eSCCACHE_DIR=/root/.cache/sccache"
     --extra="-eSCCACHE_CACHE_SIZE=${SCCACHE_CACHE_SIZE}"
     --extra="-eSCCACHE_IDLE_TIMEOUT=0"
+    --extra="--volume=${CCACHE_HOST_DIR}:/root/.ccache:Z"
+    --extra="-eCCACHE_DIR=/root/.ccache"
+    --extra="-eCCACHE_MAXSIZE=${CCACHE_MAXSIZE}"
 )
 
 # 3h. standalone test data on tmpfs. qa/standalone tests (smoke.sh, osd-*, mon-*)

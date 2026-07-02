@@ -1,0 +1,33 @@
+From c1401f340aacd9b005f675d97b27d2a1a54b4392 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 13 Jul 2026 03:34:34 -0700
+Subject: [PATCH] Dockerfile.build: install sccache from distro packages when
+ available
+
+Prefer the distro-packaged sccache (installed via dnf) over downloading a
+release tarball with curl. Fall back to the curl download when the package
+is absent or on non-dnf distros, so existing behavior is unchanged.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ Dockerfile.build | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/Dockerfile.build b/Dockerfile.build
+index 2a857d6da7a..d3ef7eab700 100644
+--- a/Dockerfile.build
++++ b/Dockerfile.build
+@@ -36,7 +36,9 @@ RUN DISTRO=$DISTRO \
+     FOR_MAKE_CHECK=${FOR_MAKE_CHECK} \
+     bash -x ${CEPH_CTR_SRC}/buildcontainer-setup.sh
+ RUN \
+-    if [ $(uname -m) != ppc64le ]; then \
++    if rpm --quiet --query sccache 2>/dev/null || { command -v dnf >/dev/null 2>&1 && dnf install -y sccache 2>/dev/null; }; then \
++    echo "sccache provided by distro packages"; \
++    elif [ $(uname -m) != ppc64le ]; then \
+     SCCACHE_ARCH="$(uname -m)"; \
+     if [ "$SCCACHE_ARCH" = riscv64 ]; then SCCACHE_ARCH=riscv64gc; fi; \
+     SCCACHE_URL="${SCCACHE_REPO}/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-${SCCACHE_ARCH}-unknown-linux-musl.tar.gz"; \
+-- 
+2.55.0
+

@@ -1,0 +1,39 @@
+From 7ed962b07e1f22929b2133132d1715c914240495 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Wed, 1 Jul 2026 20:26:31 -0700
+Subject: [PATCH 3/3] librbd/cache/pwl: cancel periodic stats timer in
+ destructor
+
+The periodic stats timer is only cancelled in shut_down(), but on init
+failure InitRequest::handle_init_image_cache() deletes the image cache
+directly without shutting it down. The armed LambdaContext captures
+`this` and re-arms itself after every firing, so the shared SafeTimer
+thread would keep calling periodic_stats() on a freed object. Cancel
+the pending event at the top of the destructor.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/librbd/cache/pwl/AbstractWriteLog.cc | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/librbd/cache/pwl/AbstractWriteLog.cc b/src/librbd/cache/pwl/AbstractWriteLog.cc
+index 891bbba44f3..4494a9851e8 100644
+--- a/src/librbd/cache/pwl/AbstractWriteLog.cc
++++ b/src/librbd/cache/pwl/AbstractWriteLog.cc
+@@ -84,6 +84,13 @@ AbstractWriteLog<I>::AbstractWriteLog(
+ template <typename I>
+ AbstractWriteLog<I>::~AbstractWriteLog() {
+   ldout(m_image_ctx.cct, 15) << "enter" << dendl;
++  {
++    std::lock_guard timer_locker(*m_timer_lock);
++    if (m_timer_ctx != nullptr) {
++      m_timer->cancel_event(m_timer_ctx);
++      m_timer_ctx = nullptr;
++    }
++  }
+   stop_thread_pool();
+   {
+     std::lock_guard locker(m_lock);
+-- 
+2.54.0
+

@@ -1,0 +1,144 @@
+From 9c7a98d51aac5cbdf827c74b079eb95a5aa44660 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 6 Jul 2026 19:03:31 -0700
+Subject: [PATCH 03/13] rbd-mirror: avoid deadlock removing local journal
+ listener
+
+journal::Replayer held m_lock while calling remove_listener() from
+close_local_image() and handle_replay_flush_shut_down().
+remove_listener() blocks until in-flight listener callbacks complete,
+but those callbacks re-acquire m_lock -- so a concurrent metadata-refresh
+notification on the journal thread deadlocks the image replayer.
+
+Release m_lock around remove_listener() in both places. close_local_image()
+now takes the caller's unique_lock to unlock/relock, mirroring
+start_external_replay().
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ .../image_replayer/journal/Replayer.cc        | 36 ++++++++++++-------
+ .../image_replayer/journal/Replayer.h         |  2 +-
+ 2 files changed, 25 insertions(+), 13 deletions(-)
+
+diff --git a/src/tools/rbd_mirror/image_replayer/journal/Replayer.cc b/src/tools/rbd_mirror/image_replayer/journal/Replayer.cc
+index 428c494d6a5..cb37e7ea089 100644
+--- a/src/tools/rbd_mirror/image_replayer/journal/Replayer.cc
++++ b/src/tools/rbd_mirror/image_replayer/journal/Replayer.cc
+@@ -266,7 +266,7 @@ void Replayer<I>::handle_init_remote_journaler(int r) {
+   if (r < 0) {
+     derr << "failed to initialize remote journal: " << cpp_strerror(r) << dendl;
+     handle_replay_complete(locker, r, "error initializing remote journal");
+-    close_local_image();
++    close_local_image(locker);
+     return;
+   }
+ 
+@@ -282,7 +282,7 @@ void Replayer<I>::handle_init_remote_journaler(int r) {
+     derr << "error retrieving remote journal client: " << cpp_strerror(r)
+          << dendl;
+     handle_replay_complete(locker, r, "error retrieving remote journal client");
+-    close_local_image();
++    close_local_image(locker);
+     return;
+   }
+ 
+@@ -292,7 +292,7 @@ void Replayer<I>::handle_init_remote_journaler(int r) {
+                                    &m_resync_requested, &error);
+   if (r < 0) {
+     handle_replay_complete(locker, r, error);
+-    close_local_image();
++    close_local_image(locker);
+     return;
+   }
+ 
+@@ -313,7 +313,7 @@ void Replayer<I>::start_external_replay(std::unique_lock<ceph::mutex>& locker) {
+ 
+     derr << "local image journal closed" << dendl;
+     handle_replay_complete(locker, -EINVAL, "error accessing local journal");
+-    close_local_image();
++    close_local_image(locker);
+     return;
+   }
+ 
+@@ -335,7 +335,7 @@ void Replayer<I>::handle_start_external_replay(int r) {
+          << cpp_strerror(r) << dendl;
+ 
+     handle_replay_complete(locker, r, "error starting replay on local image");
+-    close_local_image();
++    close_local_image(locker);
+     return;
+   }
+ 
+@@ -420,7 +420,7 @@ bool Replayer<I>::notify_init_complete(std::unique_lock<ceph::mutex>& locker) {
+   if (m_on_init_shutdown != nullptr) {
+     // shut down requested after we notified init complete but before we
+     // grabbed the lock
+-    close_local_image();
++    close_local_image(locker);
+     return false;
+   }
+ 
+@@ -494,11 +494,11 @@ void Replayer<I>::handle_wait_for_event_replay(int r) {
+   dout(10) << "r=" << r << dendl;
+ 
+   std::unique_lock locker{m_lock};
+-  close_local_image();
++  close_local_image(locker);
+ }
+ 
+ template <typename I>
+-void Replayer<I>::close_local_image() {
++void Replayer<I>::close_local_image(std::unique_lock<ceph::mutex>& locker) {
+   ceph_assert(ceph_mutex_is_locked_by_me(m_lock));
+   if (m_state_builder->local_image_ctx == nullptr) {
+     stop_remote_journaler_replay();
+@@ -507,8 +507,14 @@ void Replayer<I>::close_local_image() {
+ 
+   dout(10) << dendl;
+   if (m_local_journal_listener != nullptr) {
+-    // blocks if listener notification is in-progress
+-    m_local_journal->remove_listener(m_local_journal_listener);
++    // blocks if listener notification is in-progress; the listener
++    // callbacks acquire m_lock, so it must be released here to avoid
++    // deadlocking against an in-flight notification
++    auto local_journal = m_local_journal;
++    locker.unlock();
++    local_journal->remove_listener(m_local_journal_listener);
++    locker.lock();
++
+     delete m_local_journal_listener;
+     m_local_journal_listener = nullptr;
+   }
+@@ -863,8 +869,14 @@ void Replayer<I>::handle_replay_flush_shut_down(int r) {
+   ceph_assert(m_local_journal != nullptr);
+   ceph_assert(m_local_journal_listener != nullptr);
+ 
+-  // blocks if listener notification is in-progress
+-  m_local_journal->remove_listener(m_local_journal_listener);
++  // blocks if listener notification is in-progress; the listener
++  // callbacks acquire m_lock, so it must be released here to avoid
++  // deadlocking against an in-flight notification
++  auto local_journal = m_local_journal;
++  locker.unlock();
++  local_journal->remove_listener(m_local_journal_listener);
++  locker.lock();
++
+   delete m_local_journal_listener;
+   m_local_journal_listener = nullptr;
+ 
+diff --git a/src/tools/rbd_mirror/image_replayer/journal/Replayer.h b/src/tools/rbd_mirror/image_replayer/journal/Replayer.h
+index 97640ec9242..cf065329a6e 100644
+--- a/src/tools/rbd_mirror/image_replayer/journal/Replayer.h
++++ b/src/tools/rbd_mirror/image_replayer/journal/Replayer.h
+@@ -256,7 +256,7 @@ private:
+   void wait_for_event_replay();
+   void handle_wait_for_event_replay(int r);
+ 
+-  void close_local_image();
++  void close_local_image(std::unique_lock<ceph::mutex>& locker);
+   void handle_close_local_image(int r);
+ 
+   void stop_remote_journaler_replay();
+-- 
+2.55.0
+

@@ -1,0 +1,178 @@
+From dd34e993ea563f298107dc149653b0376183cb06 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Tue, 14 Jul 2026 14:31:40 +0800
+Subject: [PATCH 1/4] osdc: fix ReplicaSplitOp chunk distribution and
+ reassembly
+
+ReplicaSplitOp::init_read() distributed chunks over a window of acting
+indices starting at the random reference_sub_read and wrapping at the
+OSD count. This broke reads in two ways:
+
+- assemble_buffer_read() concatenates sub-read buffers in ascending
+  acting-index order, but chunks were assigned in window order, so a
+  wrapped window was reassembled in the wrong order.
+
+- chunk_size rounded the division down, which can produce one more
+  chunk than slice_count. The extra chunk wrapped the window fully
+  around and attached a second read sharing one output buffer to the
+  first sub-read.
+
+Round the division up, and distribute the chunks over an explicit
+window of valid acting indices assigned in ascending order.
+init_reference_sub_read() now collects those indices and picks one of
+them, matching ECSplitOp.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/osdc/SplitOp.cc | 65 ++++++++++++++++++++++++---------------------
+ src/osdc/SplitOp.h  | 11 +++++++-
+ 2 files changed, 45 insertions(+), 31 deletions(-)
+
+diff --git a/src/osdc/SplitOp.cc b/src/osdc/SplitOp.cc
+index 7fbc6559544..f0a219c22b8 100644
+--- a/src/osdc/SplitOp.cc
++++ b/src/osdc/SplitOp.cc
+@@ -9,6 +9,8 @@
+  * Foundation.  See file COPYING.
+  */
+ 
++#include <algorithm>
++
+ #include "osdc/SplitOp.h"
+ #include "osdc/Objecter.h"
+ #include "osd/osd_types.h"
+@@ -249,29 +251,27 @@ void ECSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
+ /**
+  * @brief Initialize reference_sub_read to a random valid OSD.
+  *
+- * Counts valid OSDs in the acting set and picks a random acting index.
+- * Must be called after _calc_target() populates the acting set.
++ * Collects the valid acting indices and picks one at random. Must be
++ * called after _calc_target() populates the acting set.
+  */
+ void ReplicaSplitOp::init_reference_sub_read() {
+   auto &target = orig_op->target;
+-  
+-  // Count valid OSDs in the acting set
+-  int valid_osd_count = 0;
++
+   for (size_t i = 0; i < target.acting.size(); i++) {
+     int direct_osd = target.acting[i];
+     if (objecter.osdmap->exists(direct_osd)) {
+-      valid_osd_count++;
++      valid_indices.push_back(i);
+     }
+   }
+-  
+-  if (valid_osd_count < 2) {
++
++  if (valid_indices.size() < 2) {
+     abort = true;
+     ldout(cct, DBG_LVL) << __func__ << " ABORT: Not enough valid OSDs" << dendl;
+     return;
+   }
+-  
+-  // Pick a random valid acting index
+-  reference_sub_read = rand() % valid_osd_count;
++
++  reference_valid_index = rand() % valid_indices.size();
++  reference_sub_read = valid_indices[reference_valid_index];
+ }
+ 
+ /**
+@@ -332,18 +332,8 @@ void ReplicaSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
+   const pg_pool_t *pi = objecter.osdmap->get_pg_pool(target.base_oloc.pool);
+   ceph_assert(pi);
+ 
+-  std::set<int> osds;
+-  for (int direct_osd : target.acting) {
+-    if (objecter.osdmap->exists(direct_osd)) {
+-      osds.insert(direct_osd);
+-    }
+-  }
+-
+-  if (osds.size() < 2) {
+-    ldout(cct, DBG_LVL) << __func__ <<" ABORT: No OSDs" << dendl;
+-    abort = true;
+-    return;
+-  }
++  // init_reference_sub_read() aborts on < 2 valid OSDs; checked by create().
++  ceph_assert(valid_indices.size() >= 2);
+ 
+   uint64_t replica_min_shard_read_size
+     = objecter.get_min_split_replica_read_size();
+@@ -352,13 +342,22 @@ void ReplicaSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
+   uint64_t length = op.op.extent.length;
+   uint64_t slice_count = replica_min_shard_read_size == 0 ? 1 :
+                           std::min(length / replica_min_shard_read_size,
+-                                   osds.size());
+-  uint64_t chunk_size = p2roundup(length / slice_count, (uint64_t)CEPH_PAGE_SIZE);
+-  
+-  // Use reference_sub_read (set in constructor) as the starting shard
+-  // This provides load balancing while ensuring reference_sub_read is always set
+-  for (unsigned i = reference_sub_read; length > 0; i = (i + 1 == osds.size()) ? 0 : i + 1) {
+-    int acting_index = i;
++                                   valid_indices.size());
++  // Round up so chunk_count cannot exceed slice_count and reuse a sub-read.
++  uint64_t chunk_size = p2roundup(div_round_up(length, slice_count),
++                                  (uint64_t)CEPH_PAGE_SIZE);
++  uint64_t chunk_count = div_round_up(length, chunk_size);
++
++  // Window starts at reference_sub_read for load balancing; chunks are
++  // assigned in ascending acting-index order to match assemble_buffer_read().
++  std::vector<int> chosen_indices;
++  for (uint64_t i = 0; i < chunk_count; i++) {
++    chosen_indices.push_back(
++      valid_indices[(reference_valid_index + i) % valid_indices.size()]);
++  }
++  std::sort(chosen_indices.begin(), chosen_indices.end());
++
++  for (int acting_index : chosen_indices) {
+     if (!sub_reads.contains(acting_index)) {
+       sub_reads.emplace(acting_index, orig_op->ops.size() + 1);
+     }
+@@ -375,6 +374,7 @@ void ReplicaSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
+     offset += len;
+     length -= len;
+   }
++  ceph_assert(length == 0);
+ }
+ 
+ #undef dout_prefix
+@@ -760,6 +760,11 @@ bool validate_operations(Objecter::Op *op, const pg_pool_t *pi, bool is_erasure,
+           ldout(cct, DBG_LVL) << __func__ << " REJECT: Zero length read" << dendl;
+           return false;
+         }
++        if (length >= (1ULL << 62)) {
++          // Guard the round-up arithmetic in init_read() from wrapping.
++          ldout(cct, DBG_LVL) << __func__ << " REJECT: Read too long" << dendl;
++          return false;
++        }
+         if ((is_erasure && length > 0) ||
+             (!is_erasure && length >= replica_min_read_size)) {
+           suitable_read_found = true;
+diff --git a/src/osdc/SplitOp.h b/src/osdc/SplitOp.h
+index ae0a86d3c93..9e9fdecd752 100644
+--- a/src/osdc/SplitOp.h
++++ b/src/osdc/SplitOp.h
+@@ -557,7 +557,16 @@ class ReplicaSplitOp : public SplitOp {
+   bool version_mismatch() const override;
+   
+   void init_reference_sub_read() override;
+-  
++
++  /**
++   * Acting indices that map to an existing OSD, in ascending order.
++   * Populated by init_reference_sub_read(), consumed by init_read().
++   */
++  std::vector<int> valid_indices;
++
++  /** Position of reference_sub_read within valid_indices. */
++  size_t reference_valid_index = 0;
++
+   /**
+    * @brief Construct a ReplicaSplitOp.
+    * @param op Original operation to be split
+-- 
+2.55.0
+

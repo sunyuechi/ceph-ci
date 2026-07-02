@@ -1,0 +1,145 @@
+From 35462b0ab78c01f10e983ea702accc0da1d701c9 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Thu, 16 Jul 2026 18:41:03 -0700
+Subject: [PATCH] cmake,run-make-check: reserve exclusive cpus for crimson
+ seastar tests
+
+Since a1f9b59c1ad ("cmake/AddCephTest: Specify resoureces to crimson
+unittest") ctest pins crimson seastar reactors to the cpu ids it
+allocates from the resource spec file, but ordinary tests take part in
+neither the accounting nor the placement: at a -j level matching the
+cpu count their threads keep landing on the pinned cores and stall the
+reactors. On a loaded 63-core builder unittest-seastar-messenger slowed
+from ~40s (exclusive cores) to past its 300s watchdog and aborted in
+sharded<ConfigProxy>::~sharded() (Assertion `_instances.empty()`);
+adding cpu contention alone reproduces the failure. Claiming a
+"1,cpus:1" resource group for ordinary tests does not help: the slot
+count matches the -j level so concurrency stays the same, and seastar
+rejects a --cpuset outside the process affinity, so accounting alone
+cannot keep the pinned cores idle.
+
+Partition the machine instead when it has 32+ usable cpus: the resource
+spec file now lists only a reserved tail of the cpu ids (nproc/5,
+clamped to [4, 16]), which confines the seastar reactors there, and
+ctest-pin-cpus.sh confines every other test, including the tox
+venv/test commands, to the remaining ids via taskset. The reserve fits
+the eight long-running --smp 1 seastore tests plus one --smp 4 test
+concurrently. Runs without the resource spec file, on smaller machines,
+or without taskset behave as before.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ cmake/modules/AddCephTest.cmake | 15 +++++++++++----
+ run-make-check.sh               | 22 ++++++++++++++++------
+ src/script/ctest-pin-cpus.sh    |  8 ++++++++
+ 3 files changed, 35 insertions(+), 10 deletions(-)
+ create mode 100755 src/script/ctest-pin-cpus.sh
+
+diff --git a/cmake/modules/AddCephTest.cmake b/cmake/modules/AddCephTest.cmake
+index a96ea2231af..462b2ece39f 100644
+--- a/cmake/modules/AddCephTest.cmake
++++ b/cmake/modules/AddCephTest.cmake
+@@ -2,7 +2,13 @@
+ 
+ #adds makes target/script into a test, test to check target, sets necessary environment variables
+ function(add_ceph_test test_name test_path)
+-  add_test(NAME ${test_name} COMMAND ${test_path} ${ARGN}
++  list(FIND ARGV "--smp" smp_pos)
++  if(smp_pos GREATER -1)
++    set(cpu_pin)
++  else()
++    set(cpu_pin ${CMAKE_SOURCE_DIR}/src/script/ctest-pin-cpus.sh)
++  endif()
++  add_test(NAME ${test_name} COMMAND ${cpu_pin} ${test_path} ${ARGN}
+     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+     COMMAND_EXPAND_LISTS)
+   if(TARGET ${test_name})
+@@ -47,7 +53,6 @@ function(add_ceph_test test_name test_path)
+   #  Step 1: Generate a resource specification file to describe available resource, $(nproc) CPUs with id 0 to $(nproc) - 1
+   #  Step 2: Set RESOURCE_GROUPS property to a test with value "${smp_count},cpus:1"
+   #  Step 3: Read a series of environment variables CTEST_RESOURCE_GROUP_* and set seastar smp_opts while running a test
+-  list(FIND ARGV "--smp" smp_pos)
+   if(smp_pos GREATER -1)
+     if(smp_pos EQUAL ARGC)
+       message(FATAL_ERROR "${test_name} --smp requires an argument")
+@@ -109,7 +114,8 @@ function(add_tox_test name)
+   string(REPLACE ";" "," tox_envs "${tox_envs}")
+   add_test(
+     NAME setup-venv-for-${name}
+-    COMMAND ${CMAKE_SOURCE_DIR}/src/tools/setup-virtualenv.sh --python=${Python3_EXECUTABLE} ${venv_path}
++    COMMAND ${CMAKE_SOURCE_DIR}/src/script/ctest-pin-cpus.sh
++              ${CMAKE_SOURCE_DIR}/src/tools/setup-virtualenv.sh --python=${Python3_EXECUTABLE} ${venv_path}
+     WORKING_DIRECTORY ${tox_path})
+   set_tests_properties(setup-venv-for-${name} PROPERTIES
+     FIXTURES_SETUP venv-for-${name})
+@@ -120,7 +126,8 @@ function(add_tox_test name)
+     FIXTURES_CLEANUP venv-for-${name})
+   add_test(
+     NAME ${test_name}
+-    COMMAND ${CMAKE_SOURCE_DIR}/src/script/run_tox.sh
++    COMMAND ${CMAKE_SOURCE_DIR}/src/script/ctest-pin-cpus.sh
++              ${CMAKE_SOURCE_DIR}/src/script/run_tox.sh
+               --source-dir ${CMAKE_SOURCE_DIR}
+               --build-dir ${CMAKE_BINARY_DIR}
+               --tox-path ${tox_path}
+diff --git a/run-make-check.sh b/run-make-check.sh
+index 2c420f3dad1..691eb841b0c 100755
+--- a/run-make-check.sh
++++ b/run-make-check.sh
+@@ -22,15 +22,25 @@ source src/script/run-make.sh
+ 
+ set -e
+ 
+-function gen_ctest_resource_file() {
+-    local file_name=$(mktemp /tmp/ctest-resource-XXXXXX)
++function setup_ctest_resources() {
++    CTEST_RESOURCE_FILE=$(mktemp /tmp/ctest-resource-XXXXXX)
+     # Usable CPU ids for this process: excludes offline cores and honors cgroup/
+     # taskset limits. Not necessarily contiguous 0..nproc-1, so a crimson seastar
+     # unittest could otherwise get an offline id in --cpuset and abort.
+-    local ids=$(python3 -c 'import os; print(*sorted(os.sched_getaffinity(0)))')
++    local ids=($(python3 -c 'import os; print(*sorted(os.sched_getaffinity(0)))'))
++    local nids=${#ids[@]}
++    if [ "$nids" -ge 32 ]; then
++        # Reserve the tail of the cpu ids for crimson seastar tests: the
++        # resource spec file lists only the reserved ids, so ctest pins their
++        # reactors there, while ctest-pin-cpus.sh keeps every other test on
++        # the remaining ids.
++        local reserve=$(( nids / 5 ))
++        reserve=$(( reserve < 4 ? 4 : reserve > 16 ? 16 : reserve ))
++        export CEPH_ORDINARY_TEST_CPUS=$(IFS=,; echo "${ids[*]:0:nids-reserve}")
++        ids=("${ids[@]:nids-reserve}")
++    fi
+     jq -n '$ARGS.positional | map({id:., slots:1}) | {cpus:.} | {version: {major:1, minor:0}, local:[.]}' \
+-        --args $ids > $file_name
+-    echo "$file_name"
++        --args "${ids[@]}" > $CTEST_RESOURCE_FILE
+ }
+ 
+ function run() {
+@@ -55,7 +65,7 @@ function run() {
+     fi
+ 
+     CHECK_MAKEOPTS=${CHECK_MAKEOPTS:-$DEFAULT_MAKEOPTS}
+-    CTEST_RESOURCE_FILE=$(gen_ctest_resource_file)
++    setup_ctest_resources
+     CHECK_MAKEOPTS+=" --resource-spec-file ${CTEST_RESOURCE_FILE}"
+     if in_jenkins; then
+         if ! ctest $CHECK_MAKEOPTS --no-compress-output --output-on-failure --test-output-size-failed 1024000 -T Test; then
+diff --git a/src/script/ctest-pin-cpus.sh b/src/script/ctest-pin-cpus.sh
+new file mode 100755
+index 00000000000..6896c730b5b
+--- /dev/null
++++ b/src/script/ctest-pin-cpus.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++# Confine a test to the cpus in CEPH_ORDINARY_TEST_CPUS so it stays off the
++# cores reserved for crimson seastar tests. Runs the command unchanged when
++# the variable is unset or taskset is unavailable.
++if [ -n "$CEPH_ORDINARY_TEST_CPUS" ] && command -v taskset >/dev/null 2>&1; then
++    exec taskset -c "$CEPH_ORDINARY_TEST_CPUS" "$@"
++fi
++exec "$@"
+-- 
+2.55.0
+

@@ -1,0 +1,31 @@
+From e2c8a9e65dfa209ba43c4d93de872ba63a0e9ad5 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 6 Jul 2026 19:00:29 -0700
+Subject: [PATCH 01/13] rbd-mirror: fix self-deadlock in ImageDeleter on
+ blocklist
+
+enqueue_failed_delete()'s -EBLOCKLISTED branch held m_lock and then
+called complete_active_delete(), which re-locks the non-recursive
+m_lock -- deadlocking the work queue thread. Drop the redundant lock;
+complete_active_delete() takes m_lock itself.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/tools/rbd_mirror/ImageDeleter.cc | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/tools/rbd_mirror/ImageDeleter.cc b/src/tools/rbd_mirror/ImageDeleter.cc
+index 790c4119fb8..be44b201269 100644
+--- a/src/tools/rbd_mirror/ImageDeleter.cc
++++ b/src/tools/rbd_mirror/ImageDeleter.cc
+@@ -265,7 +265,6 @@ void ImageDeleter<I>::enqueue_failed_delete(DeleteInfoRef* delete_info,
+                                             double retry_delay) {
+   dout(20) << "info=" << *delete_info << ", r=" << error_code << dendl;
+   if (error_code == -EBLOCKLISTED) {
+-    std::lock_guard locker{m_lock};
+     derr << "blocklisted while deleting local image" << dendl;
+     complete_active_delete(delete_info, error_code);
+     return;
+-- 
+2.55.0
+

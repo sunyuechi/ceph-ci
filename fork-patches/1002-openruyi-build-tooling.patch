@@ -1,58 +1,39 @@
-From eff364488ecdbe0b6da112cbc0da617308780ce6 Mon Sep 17 00:00:00 2001
+From 90d5201527321b60f82ee538472528f8201b5119 Mon Sep 17 00:00:00 2001
 From: Sun Yuechi <sunyuechi@iscas.ac.cn>
-Date: Sat, 6 Jun 2026 15:13:26 +0800
-Subject: [PATCH 1/2] build: add openRuyi as a containerized build target
-
-Teach the dependency-install and build-with-container tooling to
-recognize openRuyi (a RISC-V RPM distribution):
-
-- install-deps.sh: add an `openruyi)` branch (dnf5 builddep, --allowerasing)
-- src/script/build-with-container.py: register openruyi (DistroKind, uses_dnf,
-  aliases, DefaultImage); use --pull=missing for locally-imported images
-- src/script/buildcontainer-setup.sh: add an openruyi case to install the
-  build bootstrap (dnf5-plugins, rpm-build, python3, wget, ...)
+Date: Sat, 27 Jun 2026 19:33:42 +0800
+Subject: [PATCH] build: add openRuyi as a containerized build target
 
 Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
 ---
- install-deps.sh                    | 21 +++++++++++++++++++++
- src/script/build-with-container.py | 15 ++++++++++++++-
- src/script/buildcontainer-setup.sh |  9 +++++++++
- 3 files changed, 44 insertions(+), 1 deletion(-)
+ install-deps.sh                    | 5 ++++-
+ src/script/build-with-container.py | 7 +++++++
+ src/script/buildcontainer-setup.sh | 6 ++++++
+ 3 files changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/install-deps.sh b/install-deps.sh
-index 65ce59da2e0..1934d9dc0e1 100755
+index 65ce59da2e0..fac9c123890 100755
 --- a/install-deps.sh
 +++ b/install-deps.sh
-@@ -555,6 +555,27 @@ else
-         munge_ceph_spec_in $with_crimson $for_make_check $DIR/ceph.spec
-         $SUDO $zypp_install $(rpmspec -q --buildrequires $DIR/ceph.spec) || exit 1
+@@ -508,13 +508,16 @@ else
+         $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -y remove ceph-build-deps
+         if [ "$control" != "debian/control" ] ; then rm $control; fi
          ;;
-+    openruyi)
-+        # openRuyi is an independent RISC-V RPM distribution built on dnf5.
-+        # It has no EPEL/SELinux bootstrap, and VERSION_ID is not numeric
-+        # (e.g. "Creek"), so keep this branch minimal and do not parse the
-+        # version. The builddep subcommand is provided by dnf5-plugins.
-+        echo "Using dnf to install dependencies for openRuyi"
-+        builddepcmd="dnf -y builddep --allowerasing"
-+        rpm --quiet --query dnf5-plugins || $SUDO dnf install -y dnf5-plugins
-+        # ceph.spec.in selects openRuyi-specific (capability-based) BuildRequires
-+        # via %{_vendor} == "openruyi", which the base rpm-config-openruyi package
-+        # already defines (/usr/lib/rpm/macros.d/macros.vendor); nothing to set up.
-+        if [ "$INSTALL_EXTRA_PACKAGES" ]; then
-+            $SUDO dnf install -y $INSTALL_EXTRA_PACKAGES
-+        fi
-+        munge_ceph_spec_in $with_crimson $for_make_check $DIR/ceph.spec
-+        # for python3_pkgversion macro defined by python-srpm-macros, which is required by python3-devel
-+        $SUDO dnf install -y python3-devel
-+        $SUDO $builddepcmd $DIR/ceph.spec 2>&1 | tee $DIR/yum-builddep.out
-+        [ ${PIPESTATUS[0]} -ne 0 ] && exit 1
-+        grep -i "error:" $DIR/yum-builddep.out && exit 1
-+        ;;
-     *)
-         echo "$ID is unknown, dependencies will have to be installed manually."
-         exit 1
+-    almalinux|rocky|centos|fedora|rhel|ol|virtuozzo)
++    almalinux|rocky|centos|fedora|rhel|ol|virtuozzo|openruyi)
+         builddepcmd="dnf -y builddep --allowerasing"
+         echo "Using dnf to install dependencies"
+         case "$ID" in
+             fedora)
+                 $SUDO dnf install -y dnf-utils
+                 ;;
++            openruyi)
++                rpm --quiet --query dnf5-plugins || $SUDO dnf install -y dnf5-plugins
++                ;;
+             almalinux|rocky|centos|rhel|ol|virtuozzo)
+                 MAJOR_VERSION="$(echo $VERSION_ID | cut -d. -f1)"
+                 $SUDO dnf install -y dnf-utils selinux-policy-targeted
 diff --git a/src/script/build-with-container.py b/src/script/build-with-container.py
-index b17db22ef08..3d23cddd69a 100755
+index b17db22ef08..b8196d48d88 100755
 --- a/src/script/build-with-container.py
 +++ b/src/script/build-with-container.py
 @@ -115,6 +115,7 @@ class DistroKind(StrEnum):
@@ -75,59 +56,38 @@ index b17db22ef08..3d23cddd69a 100755
              str(cls.DEBIAN13): cls.DEBIAN13,
              "debian-trixie": cls.DEBIAN13,
              "trixie": cls.DEBIAN13,
-+            # openRuyi (independent RISC-V RPM distro)
++            # openruyi
 +            str(cls.OPENRUYI): cls.OPENRUYI,
 +            "openruyi-creek": cls.OPENRUYI,
          }
  
      @classmethod
-@@ -204,6 +209,10 @@ class DefaultImage(StrEnum):
+@@ -204,6 +209,8 @@ class DefaultImage(StrEnum):
      # debian
      DEBIAN12 = "docker.io/debian:bookworm"
      DEBIAN13 = "docker.io/debian:trixie"
-+    # openRuyi: minimal OCI image imported locally from the openRuyi mkosi build
-+    # (see ceph-ci repo scripts/fetch-openruyi-image.sh). Override with
-+    # --base-image to pull from a private registry instead.
-+    OPENRUYI = "localhost/openruyi-oci:riscv64"
++    # openruyi
++    OPENRUYI = "community-ci.openruyi.cn/openruyi-oci:riscv64"
  
  
  class CommandFailed(Exception):
-@@ -721,10 +730,14 @@ def npm_cache_dir(ctx):
- def build_container(ctx):
-     """Generate a build environment container image."""
-     ctx.build.wants(Steps.DNF_CACHE, ctx)
-+    # Locally-imported base images (e.g. openRuyi's OCI tarball, referenced as
-+    # localhost/...) are not in any registry, so a forced pull fails. Only
-+    # force-pull registry-backed bases; otherwise pull just the missing ones.
-+    pull_flag = "--pull=missing" if ctx.from_image.startswith("localhost/") else "--pull"
-     cmd = [
-         ctx.container_engine,
-         "build",
--        "--pull",
-+        pull_flag,
-         "-t",
-         ctx.image_name,
-         f"--label=io.ceph.build-with-container.src={_hash_sources()}",
 diff --git a/src/script/buildcontainer-setup.sh b/src/script/buildcontainer-setup.sh
-index e5442f4ab7b..d933cabbcbb 100644
+index d4de868e68a..63585a82c08 100644
 --- a/src/script/buildcontainer-setup.sh
 +++ b/src/script/buildcontainer-setup.sh
-@@ -41,6 +41,15 @@ case "${CEPH_BASE_BRANCH}~${DISTRO_KIND}" in
+@@ -41,6 +41,12 @@ case "${CEPH_BASE_BRANCH}~${DISTRO_KIND}" in
          install_container_deps
          dnf_clean
      ;;
++    # openRuyi's minimal image lacks tar/gzip needed to unpack build tarballs
 +    *~*openruyi*)
-+        # openRuyi ships a minimal OCI image (bash, dnf5, rpm, curl only).
-+        # Install the tools the container build itself needs (rpmbuild for the
-+        # spec-driven builddep, plus the usual fetch/archive helpers) before
-+        # handing off to install-deps.sh via install_container_deps.
-+        dnf install -y dnf5-plugins rpm-build python3 wget tar gzip /usr/bin/{rpmbuild,curl}
++        dnf install -y tar gzip /usr/bin/{rpmbuild,wget,curl}
 +        install_container_deps
 +        dnf_clean
 +    ;;
      *~*ubuntu*|*~*debian*)
          apt-get update
-         apt-get install -y wget reprepro curl software-properties-common lksctp-tools libsctp-dev protobuf-compiler ragel libc-ares-dev
+         pkgs=(wget reprepro curl lksctp-tools libsctp-dev protobuf-compiler ragel libc-ares-dev)
 -- 
-2.54.0
+2.55.0
 

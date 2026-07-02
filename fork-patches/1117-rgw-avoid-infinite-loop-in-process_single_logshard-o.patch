@@ -1,0 +1,65 @@
+From a8401cc1f192fd54ba8eebb912499e92bd25111f Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 29 Jun 2026 19:37:03 -0700
+Subject: [PATCH 1/2] rgw: avoid infinite loop in process_single_logshard on
+ list error
+
+When list() returned an error other than ENOENT, neither
+is_truncated nor marker changed, so the do/while(is_truncated) loop spun
+forever holding the logshard lock and flooding the log.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/rgw/driver/rados/rgw_reshard.cc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/rgw/driver/rados/rgw_reshard.cc b/src/rgw/driver/rados/rgw_reshard.cc
+index 10816ff74458d..45701a4d90177 100644
+--- a/src/rgw/driver/rados/rgw_reshard.cc
++++ b/src/rgw/driver/rados/rgw_reshard.cc
+@@ -1733,7 +1733,7 @@ int RGWReshard::process_single_logshard(int logshard_num, const DoutPrefixProvid
+     if (ret < 0) {
+       ldpp_dout(dpp, 10) << "cannot list all reshards in logshard oid=" <<
+ 	logshard_oid << dendl;
+-      continue;
++      break;
+     }
+ 
+     for(const auto& entry : entries) { // logshard entries
+@@ -1752,7 +1752,7 @@ int RGWReshard::process_single_logshard(int logshard_num, const DoutPrefixProvid
+   } while (is_truncated);
+ 
+   logshard_lock.unlock();
+-  return 0;
++  return ret;
+ }
+ 
+ 
+
+From e0c1a7abe945e148de927ca2ff10a8e67f10c38f Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Tue, 7 Jul 2026 22:56:16 -0700
+Subject: [PATCH 2/2] rgw: release logshard lock on renew failure in
+ process_single_logshard
+
+When logshard_lock.renew() failed mid-loop, process_single_logshard
+returned early without calling logshard_lock.unlock(), leaking the
+lock until it expired on its own.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/rgw/driver/rados/rgw_reshard.cc | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/rgw/driver/rados/rgw_reshard.cc b/src/rgw/driver/rados/rgw_reshard.cc
+index 45701a4d90177..d97ca8aa5f7f1 100644
+--- a/src/rgw/driver/rados/rgw_reshard.cc
++++ b/src/rgw/driver/rados/rgw_reshard.cc
+@@ -1743,6 +1743,7 @@ int RGWReshard::process_single_logshard(int logshard_num, const DoutPrefixProvid
+       if (logshard_lock.should_renew(now)) {
+         ret = logshard_lock.renew(now);
+         if (ret < 0) {
++          logshard_lock.unlock();
+           return ret;
+         }
+       }

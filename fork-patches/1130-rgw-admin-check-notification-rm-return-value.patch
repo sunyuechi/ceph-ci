@@ -1,0 +1,32 @@
+From efa6ee5e8bfc2ebb5ffeb08534af0526f090d793 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Tue, 7 Jul 2026 08:08:39 -0700
+Subject: [PATCH] rgw/admin: check notification rm return value
+
+'notification rm' ignored the removal return value and exited
+successfully even on failure. Propagate the error, treating -ENOENT
+as success since removal is idempotent.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/rgw/radosgw-admin/radosgw-admin.cc | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/rgw/radosgw-admin/radosgw-admin.cc b/src/rgw/radosgw-admin/radosgw-admin.cc
+index eb174f43f87..4ffc2beca25 100644
+--- a/src/rgw/radosgw-admin/radosgw-admin.cc
++++ b/src/rgw/radosgw-admin/radosgw-admin.cc
+@@ -12388,6 +12388,10 @@ next:
+         ret = b.remove_notification_by_id(dpp(), notification_id, null_yield);
+       }
+     }
++    if (ret < 0 && ret != -ENOENT) {
++      cerr << "ERROR: could not remove notification: " << cpp_strerror(-ret) << std::endl;
++      return -ret;
++    }
+   }
+ 
+ #ifdef WITH_RADOSGW_RADOS
+-- 
+2.55.0
+

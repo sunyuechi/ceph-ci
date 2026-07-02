@@ -1,32 +1,197 @@
-From ae23ed1db23b2472e2b08fab8d1df74a38d666b0 Mon Sep 17 00:00:00 2001
+From d1ed18a7205481d5f1f5c24f2d8c8e937a4eec83 Mon Sep 17 00:00:00 2001
 From: Sun Yuechi <sunyuechi@iscas.ac.cn>
-Date: Thu, 25 Jun 2026 21:39:11 +0800
-Subject: [PATCH 5/6] osd/ECUtil: fix offset accumulation in slice_map
+Date: Mon, 13 Jul 2026 11:56:23 -0700
+Subject: [PATCH] pybind: write Tempita-processed pyx to the build directory
+
+distutils_add_cython_module() runs setup.py with WORKING_DIRECTORY set
+to the source directory, so every build leaks
+{rados,cephfs,rbd,rgw}_processed.pyx into the source tree as untracked
+files. Write the file to CYTHON_BUILD_DIR (already exported by that
+CMake function) when set, keeping the cwd fallback for standalone
+invocations.
+
+The .pyx no longer sits next to the bindings' .pxd files, so add each
+binding's source directory to include_path. Drop the build_dir
+argument: it has no effect on absolute source paths.
 
 Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
 ---
- src/osd/ECUtil.cc | 6 +++---
- 1 file changed, 3 insertions(+), 3 deletions(-)
+ src/pybind/cephfs/setup.py | 18 +++++++++++++-----
+ src/pybind/rados/setup.py  | 16 ++++++++++++----
+ src/pybind/rbd/setup.py    | 18 +++++++++++++-----
+ src/pybind/rgw/setup.py    | 18 +++++++++++++-----
+ 4 files changed, 51 insertions(+), 19 deletions(-)
 
-diff --git a/src/osd/ECUtil.cc b/src/osd/ECUtil.cc
-index 68ae458331a..b7286b950cb 100644
---- a/src/osd/ECUtil.cc
-+++ b/src/osd/ECUtil.cc
-@@ -811,11 +811,11 @@ shard_extent_map_t shard_extent_map_t::slice_map(
+diff --git a/src/pybind/cephfs/setup.py b/src/pybind/cephfs/setup.py
+index d41d9d63a245..6e68579a2521 100755
+--- a/src/pybind/cephfs/setup.py
++++ b/src/pybind/cephfs/setup.py
+@@ -149,7 +149,14 @@ def check_sanity():
+ elif check_sanity():
+     ext_args = get_python_flags(['cephfs'])
+     cython_constants = dict(BUILD_DOC=False)
+-    include_path = [os.path.join(os.path.dirname(__file__), "..", "rados")]
++    # The processed .pyx is written to CYTHON_BUILD_DIR, away from the
++    # binding's own c_*.pxd, so add this source directory to include_path
++    # for cimports to resolve.
++    source_dir = os.path.dirname(os.path.abspath(__file__))
++    include_path = [
++        source_dir,
++        os.path.join(source_dir, "..", "rados"),
++    ]
+     cythonize_args = dict(include_path=include_path)
+ else:
+     sys.exit(1)
+@@ -186,9 +193,11 @@ def cythonize(x, **kwargs):
+     # Process the template with cython_constants
+     processed = Tempita.sub(template_content, **cython_constants)
  
-     if (!iemap.empty()) {
-       slice.start_offset = min(slice.start_offset, iemap.get_start_off());
--      slice.end_offset = max(slice.start_offset, iemap.get_end_off());
--      slice.ro_start = min(slice.start_offset,
-+      slice.end_offset = max(slice.end_offset, iemap.get_end_off());
-+      slice.ro_start = min(slice.ro_start,
-                            calc_ro_offset(sinfo->get_raw_shard(shard),
-                                           iemap.get_start_off()));
--      slice.ro_end = min(slice.ro_end,
-+      slice.ro_end = max(slice.ro_end,
-                          calc_ro_end(sinfo->get_raw_shard(shard),
-                                      iemap.get_end_off()));
-       slice.extent_maps.emplace(shard, iemap);
--- 
-2.54.0
-
+-    # Write processed output to current working directory
+-    # (which is the build directory when invoked by CMake)
+-    output_pyx = "cephfs_processed.pyx"
++    # Write the processed output to the build directory when invoked by
++    # CMake, which exports CYTHON_BUILD_DIR but runs setup.py from the
++    # source directory; fall back to the current working directory.
++    build_dir = os.environ.get("CYTHON_BUILD_DIR", os.getcwd())
++    output_pyx = os.path.join(build_dir, "cephfs_processed.pyx")
+ 
+     with open(output_pyx, 'w') as f:
+         f.write(processed)
+@@ -225,7 +234,6 @@ def cythonize(x, **kwargs):
+                 **ext_args
+             )
+         ],
+-        build_dir=os.environ.get("CYTHON_BUILD_DIR", None),
+         **cythonize_args
+     ),
+     classifiers=[
+diff --git a/src/pybind/rados/setup.py b/src/pybind/rados/setup.py
+index bf3802953baa..8e84e75d8638 100755
+--- a/src/pybind/rados/setup.py
++++ b/src/pybind/rados/setup.py
+@@ -140,9 +140,15 @@ def check_sanity():
+ if 'BUILD_DOC' in os.environ or 'READTHEDOCS' in os.environ:
+     ext_args = dict(extra_compile_args=['-DBUILD_DOC'])
+     cython_constants = dict(BUILD_DOC=True)
++    cythonize_args = dict()
+ elif check_sanity():
+     ext_args = get_python_flags(['rados'])
+     cython_constants = dict(BUILD_DOC=False)
++    # The processed .pyx is written to CYTHON_BUILD_DIR, away from the
++    # binding's own c_*.pxd, so add this source directory to include_path
++    # for cimports to resolve.
++    include_path = [os.path.dirname(os.path.abspath(__file__))]
++    cythonize_args = dict(include_path=include_path)
+ else:
+     sys.exit(1)
+ 
+@@ -178,9 +184,11 @@ def cythonize(x, **kwargs):
+     # Process the template with cython_constants
+     processed = Tempita.sub(template_content, **cython_constants)
+ 
+-    # Write processed output to current working directory
+-    # (which is the build directory when invoked by CMake)
+-    output_pyx = "rados_processed.pyx"
++    # Write the processed output to the build directory when invoked by
++    # CMake, which exports CYTHON_BUILD_DIR but runs setup.py from the
++    # source directory; fall back to the current working directory.
++    build_dir = os.environ.get("CYTHON_BUILD_DIR", os.getcwd())
++    output_pyx = os.path.join(build_dir, "rados_processed.pyx")
+ 
+     with open(output_pyx, 'w') as f:
+         f.write(processed)
+@@ -216,7 +224,7 @@ def cythonize(x, **kwargs):
+                 **ext_args
+             )
+         ],
+-        build_dir=os.environ.get("CYTHON_BUILD_DIR", None),
++        **cythonize_args
+     ),
+     classifiers=[
+         'Intended Audience :: Developers',
+diff --git a/src/pybind/rbd/setup.py b/src/pybind/rbd/setup.py
+index 69cfa06a122d..674f999735f5 100755
+--- a/src/pybind/rbd/setup.py
++++ b/src/pybind/rbd/setup.py
+@@ -147,7 +147,14 @@ def check_sanity():
+ elif check_sanity():
+     ext_args = get_python_flags(['rados', 'rbd'])
+     cython_constants = dict(BUILD_DOC=False)
+-    include_path = [os.path.join(os.path.dirname(__file__), "..", "rados")]
++    # The processed .pyx is written to CYTHON_BUILD_DIR, away from the
++    # binding's own c_*.pxd, so add this source directory to include_path
++    # for cimports to resolve.
++    source_dir = os.path.dirname(os.path.abspath(__file__))
++    include_path = [
++        source_dir,
++        os.path.join(source_dir, "..", "rados"),
++    ]
+     cythonize_args = dict(include_path=include_path)
+ else:
+     sys.exit(1)
+@@ -185,9 +192,11 @@ def cythonize(x, **kwargs):
+     # Process the template with cython_constants
+     processed = Tempita.sub(template_content, **cython_constants)
+ 
+-    # Write processed output to current working directory
+-    # (which is the build directory when invoked by CMake)
+-    source = "rbd_processed.pyx"
++    # Write the processed output to the build directory when invoked by
++    # CMake, which exports CYTHON_BUILD_DIR but runs setup.py from the
++    # source directory; fall back to the current working directory.
++    build_dir = os.environ.get("CYTHON_BUILD_DIR", os.getcwd())
++    source = os.path.join(build_dir, "rbd_processed.pyx")
+ 
+     with open(source, 'w') as f:
+         f.write(processed)
+@@ -222,7 +231,6 @@ def cythonize(x, **kwargs):
+                 **ext_args
+             )
+         ],
+-        build_dir=os.environ.get("CYTHON_BUILD_DIR", None),
+         **cythonize_args
+     ),
+     classifiers=[
+diff --git a/src/pybind/rgw/setup.py b/src/pybind/rgw/setup.py
+index 29b662431409..26ad7089712a 100755
+--- a/src/pybind/rgw/setup.py
++++ b/src/pybind/rgw/setup.py
+@@ -149,7 +149,14 @@ def check_sanity():
+ elif check_sanity():
+     ext_args = get_python_flags(['rados', 'rgw'])
+     cython_constants = dict(BUILD_DOC=False)
+-    include_path = [os.path.join(os.path.dirname(__file__), "..", "rados")]
++    # The processed .pyx is written to CYTHON_BUILD_DIR, away from the
++    # binding's own c_*.pxd, so add this source directory to include_path
++    # for cimports to resolve.
++    source_dir = os.path.dirname(os.path.abspath(__file__))
++    include_path = [
++        source_dir,
++        os.path.join(source_dir, "..", "rados"),
++    ]
+     cythonize_args = dict(include_path=include_path)
+ else:
+     sys.exit(1)
+@@ -186,9 +193,11 @@ def cythonize(x, **kwargs):
+     # Process the template with cython_constants
+     processed = Tempita.sub(template_content, **cython_constants)
+ 
+-    # Write processed output to current working directory
+-    # (which is the build directory when invoked by CMake)
+-    output_pyx = "rgw_processed.pyx"
++    # Write the processed output to the build directory when invoked by
++    # CMake, which exports CYTHON_BUILD_DIR but runs setup.py from the
++    # source directory; fall back to the current working directory.
++    build_dir = os.environ.get("CYTHON_BUILD_DIR", os.getcwd())
++    output_pyx = os.path.join(build_dir, "rgw_processed.pyx")
+ 
+     with open(output_pyx, 'w') as f:
+         f.write(processed)
+@@ -224,7 +233,6 @@ def cythonize(x, **kwargs):
+                 **ext_args
+             )
+         ],
+-        build_dir=os.environ.get("CYTHON_BUILD_DIR", None),
+         **cythonize_args
+     ),
+     classifiers=[

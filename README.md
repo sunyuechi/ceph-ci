@@ -55,7 +55,8 @@ checkouts and caches never interleave:
 
 Inside every bucket the same names recur: `run.log` (symlink to the newest run),
 `ci-log/` (timestamped run + mem logs), `ceph/` (the checkout, build-check & spec-upstream),
-`build/` `sources/` `rpms/` `artifacts/` `state/` (spec paths), `sccache-cache/`.
+`build/` `sources/` `rpms/` `artifacts/` `state/` (spec paths), `sccache-cache/`,
+`ccache-cache/` (build-check).
 
 ## More
 

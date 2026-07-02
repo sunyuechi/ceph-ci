@@ -1,0 +1,35 @@
+From 5e63c46a5a9c53d4d2ea3df0c55c6ad44b927325 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 29 Jun 2026 19:38:09 -0700
+Subject: [PATCH 06/13] rgw/s3: guard against empty key_or_value in
+ update_attribute_map
+
+update_attribute_map() unconditionally called pop_back() on key_or_value
+to strip a trailing separator. A POST form field such as
+"Attributes.entry.N=" leaves no trailing token, so key_or_value stays
+empty and pop_back() on an empty string is undefined behavior, reachable
+from a remote client. Only pop_back() when the string is non-empty.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/rgw/rgw_rest_s3.cc | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/rgw/rgw_rest_s3.cc b/src/rgw/rgw_rest_s3.cc
+index 7dc6320c447..6e575cb4ae2 100644
+--- a/src/rgw/rgw_rest_s3.cc
++++ b/src/rgw/rgw_rest_s3.cc
+@@ -5994,7 +5994,9 @@ void update_attribute_map(const std::string& input, AttributeMap& map) {
+     ++token;
+   }
+   // remove last separator
+-  key_or_value.pop_back();
++  if (!key_or_value.empty()) {
++    key_or_value.pop_back();
++  }
+ 
+   auto pos = key_or_value.find("=");
+   if (pos != std::string::npos) {
+-- 
+2.55.0
+
