@@ -113,6 +113,9 @@ TREE_PATCHES=(
 	1100-librbd-cache-pwl-join-tp_pwl-workers-before-derived-.patch
 	1101-librbd-cache-pwl-cancel-periodic-stats-timer-in-dest.patch
 
+	# todo
+	1102-common-crc32c-stop-using-gp-tp-as-scratch-in-RISC-V-.patch
+
     # -- 2xxx: openRuyi downstream, not for upstream --
     # bump pylint 2.6.0 -> 2.17.7 for py3.13 / wrapt compat
     2001-monitoring-ceph-mixin-bump-pylint.patch
