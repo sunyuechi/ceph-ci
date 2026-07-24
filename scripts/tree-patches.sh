@@ -17,49 +17,17 @@ TREE_PATCHES=(
 	1040-internal-api-test_Encryption.cc.patch
 	1041-test_DiffIterate.cc.patch
 
-	# https://github.com/ceph/ceph/pull/69680
-	# ASan-guarded test shrinks (__has_feature(address_sanitizer)); no-ops without
-	# ASan, so applied unconditionally. ASan itself is opt-in via WITH_ASAN in
-	# run-build-check.sh (-DWITH_ASAN=ON), which replaces former patch 1048.
-	1045-test-crimson-omap-enlarge-values-under-ASan-to-shrin.patch
 	# todo
 	1046-test-crimson-onode-shrink-synthetic-pool-under-ASan.patch
 	1047-test-transaction_manager-shrink-working-set-under-AS.patch
 
-	# https://github.com/ceph/ceph/pull/70150
-	1056-osd-ECUtil-fix-offset-accumulation-in-slice_map.patch
-	# https://github.com/ceph/ceph/pull/70150
-	1057-osd-scrubber-send-real-reservation-nonce-in-scrub-gr.patch
-
 	# todo
 	1060-osd-fix-misspelled-inject-ec-clear-command-names.patch
-	# https://github.com/ceph/ceph/pull/70254
-	1063-osd-drop-bogus-snaps-key-in-rollback_extents-dump.patch
-	# todo
 	1064-osd-avoid-inserting-empty-OI_ATTR-in-rollback_setatt.patch
-
-	# https://github.com/ceph/ceph/pull/69758
-	1065-seastar-bump.patch
-	# https://github.com/ceph/ceph/pull/69823
-	1066-mon-MgrMonitor-reply-to-client-on-invalid-mgr-set-co.patch
-	# https://github.com/ceph/ceph/pull/69835
-	1067-mds-Server-return-after-responding-on-error-paths.patch
-	# https://github.com/ceph/ceph/pull/69821
-	1070-rgw-fix-inverted-MFA-check-in-DeleteMultiObj-for-ver.patch
-	1071-rgw-posix-fix-inverted-If-None-Match-check-allowing-.patch
-	1072-rgw-sts-fix-inverted-tokenCode-length-validation.patch
-	# https://github.com/ceph/ceph/pull/69863
-	1075-crimson-osd-replicated_recovery_backend-fix-use-afte.patch
-	# https://github.com/ceph/ceph/pull/69862
-	1077-crimson-mon-MonClient-fix-use-after-free-in-run_comm.patch
-	# https://github.com/ceph/ceph/pull/69880
-	1081-fix-client.patch
 
 	# todo
 	1085-mgr-DaemonServer-fix-order-dependent-ok-to-stop-fals.patch
 
-	# https://github.com/ceph/ceph/pull/69885
-	1086-rados-clean.patch
 	# todo
 	1089-ceph_dedup-avoid-divide-by-zero-in-EstimateResult-du.patch
 	1090-ceph_dedup-write-chunk-data-at-offset-0-in-make_dedu.patch
@@ -69,7 +37,6 @@ TREE_PATCHES=(
 	1094-cephfs-bench-fix-invalid-short-option-name-for-files.patch
 	1095-kv-rocksdb_cache-fix-BinnedLRUCache-l_elems-counter-.patch
 
-	1096-test-common-add-RISC-V-CRC32C-performance-benchmark-.patch
 	1097-test-add-RISC-V-architecture-probe-tests.patch
 
 	# https://github.com/ceph/ceph/pull/69898
@@ -93,11 +60,6 @@ TREE_PATCHES=(
 	1113-rbd-mirror-guard-m_image_map-init-with-m_lock.patch
 	1114-rbd-mirror-keep-peer-config-key-resolution-callout.patch
 
-	# https://github.com/ceph/ceph/pull/70001
-	1116-rgw-pubsub-return-negative-error-code-from-remove_no.patch
-	# https://github.com/ceph/ceph/pull/70026
-	1117-rgw-avoid-infinite-loop-in-process_single_logshard-o.patch
-
 	# todo
 	1118-rgw-keystone-guard-against-empty-secret-file-in-read.patch
 	1119-rgw-d4n-pass-next_cursor-by-reference-in-BucketDirec.patch
@@ -116,9 +78,6 @@ TREE_PATCHES=(
 	1128-rgw-keystone-check-barbican-401-before-generic-error.patch
 	1129-rgw-posix-do-not-update-quota-stats-when-object-remo.patch
 
-	# https://github.com/ceph/ceph/pull/70001
-	1130-rgw-admin-check-notification-rm-return-value.patch
-
 	# https://github.com/ceph/ceph/pull/70149/changes
 	1131-osd-PeeringState-avoid-dereferencing-olog-end-in-pro.patch
 	1132-osd-PeeringState-fix-proc_master_log-divergence-chec.patch
@@ -129,11 +88,6 @@ TREE_PATCHES=(
 	1135-osdc-handle-reads-below-the-min-split-size-in-multi-.patch
 	1136-test-librados-cover-ReplicaSplitOp-reassembly-and-mu.patch
 	1137-osdc-avoid-divide-by-zero-in-prepare_single_op-on-re.patch
-
-	# https://github.com/ceph/ceph/pull/70206
-	1138-Dockerfile.build-install-sccache-from-distro-package.patch
-	# https://github.com/ceph/ceph/pull/70189
-	1139-cmake-fix-sccache-dist-detection-without-dist-client.patch
 
 	# https://github.com/ceph/ceph/pull/70211
 	1140-src-common-optimize-Zvbc-CRC32C-for-riscv64.patch
