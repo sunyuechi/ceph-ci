@@ -1,4 +1,4 @@
-From dac03058124afbc34eacde66d7947a611db4f283 Mon Sep 17 00:00:00 2001
+From 41a8751bc512514743cf134c70e2f2714935ba68 Mon Sep 17 00:00:00 2001
 From: Sun Yuechi <sunyuechi@iscas.ac.cn>
 Date: Tue, 14 Jul 2026 04:06:50 -0700
 Subject: [PATCH 4/4] osdc: avoid divide-by-zero in prepare_single_op on
@@ -16,14 +16,14 @@ that gives up on the split.
 Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
 ---
  src/osdc/SplitOp.cc               | 16 ++++++++++++++--
- src/test/librados/split_op_cxx.cc | 26 ++++++++++++++++++++++++++
- 2 files changed, 40 insertions(+), 2 deletions(-)
+ src/test/librados/split_op_cxx.cc | 25 +++++++++++++++++++++++++
+ 2 files changed, 39 insertions(+), 2 deletions(-)
 
 diff --git a/src/osdc/SplitOp.cc b/src/osdc/SplitOp.cc
-index 98800f4f8ea..0e79d010b0d 100644
+index a32ee9dbd7f..f33a9fab257 100644
 --- a/src/osdc/SplitOp.cc
 +++ b/src/osdc/SplitOp.cc
-@@ -906,7 +906,14 @@ void SplitOp::prepare_single_op(Objecter::Op *op, Objecter &objecter, CephContex
+@@ -901,7 +901,14 @@ void SplitOp::prepare_single_op(Objecter::Op *op, Objecter &objecter, CephContex
    const pg_pool_t *pi = objecter.osdmap->get_pg_pool(target.base_oloc.pool);
    ceph_assert(pi);
  
@@ -38,18 +38,18 @@ index 98800f4f8ea..0e79d010b0d 100644
    uint64_t data_chunk_count = pi->get_ec_data_shard_count();
    uint32_t chunk_size = pi->get_stripe_width() / data_chunk_count;
  
-@@ -1020,7 +1027,9 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
+@@ -1015,7 +1022,9 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
      return false;
    }
  
 -  // Populate the target, to extract the acting set from it.
 +  // Populate the target, to extract the acting set from it. _calc_target()
-+  // short-circuits once pgid is set, so paths that give up must restore it.
++  // short-circuits once pgid is set.
 +  const auto saved_target = target;
    target.flags &= ~CEPH_OSD_FLAG_BALANCE_READS;
    objecter._calc_target(&op->target, op);
  
-@@ -1030,9 +1039,10 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
+@@ -1025,9 +1034,10 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
    if (split_read->reference_sub_read == -1) {
      split_read->abort = true;
    }
@@ -61,7 +61,7 @@ index 98800f4f8ea..0e79d010b0d 100644
      return false;
    }
  
-@@ -1047,6 +1057,7 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
+@@ -1042,6 +1052,7 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
    // STAGE 5: Final abort check - discard split op if problems were detected
    if (split_read->abort) {
      ldout(cct, DBG_LVL) << __func__ <<" ABORTED 2" << dendl;
@@ -69,7 +69,7 @@ index 98800f4f8ea..0e79d010b0d 100644
      return false;
    }
  
-@@ -1054,6 +1065,7 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
+@@ -1049,6 +1060,7 @@ bool SplitOp::create(Objecter::Op *op, Objecter &objecter,
    // fails, then this will catch the cases (albeit less efficiently).
    if (split_read->sub_reads.size() <= 1) {
      ldout(cct, DBG_LVL) << __func__ <<" reusing original op - inefficient" << dendl;
@@ -78,10 +78,10 @@ index 98800f4f8ea..0e79d010b0d 100644
      split_read->abort = true; // Required for destructor.
      return false;
 diff --git a/src/test/librados/split_op_cxx.cc b/src/test/librados/split_op_cxx.cc
-index 53741fd8125..33f8b9fc561 100644
+index ff4c3d82982..322b497144b 100644
 --- a/src/test/librados/split_op_cxx.cc
 +++ b/src/test/librados/split_op_cxx.cc
-@@ -164,6 +164,32 @@ TEST_P(LibRadosSplitOpPP, ReadTwoShards) {
+@@ -169,6 +169,31 @@ TEST_P(LibRadosSplitOpPP, ReadTwoShards) {
    }
  }
  
@@ -89,7 +89,6 @@ index 53741fd8125..33f8b9fc561 100644
 +  if (!split_ops) {
 +    GTEST_SKIP() << "Needs split_ops!";
 +  }
-+  // Below a page, p2roundup() folds a validated split back into one chunk.
 +  ASSERT_EQ(0, cluster.conf_set("osd_min_split_replica_read_size", "1024"));
 +
 +  bufferlist bl = make_pattern_bl(2048);

@@ -1,4 +1,4 @@
-From cb0906b36f84c6225ea88e886698d1a328579639 Mon Sep 17 00:00:00 2001
+From 1a37e205ec08b95738fc450280a1c2a4d9657d5f Mon Sep 17 00:00:00 2001
 From: Sun Yuechi <sunyuechi@iscas.ac.cn>
 Date: Tue, 14 Jul 2026 14:31:40 +0800
 Subject: [PATCH 2/4] osdc: handle reads below the min split size in multi-op
@@ -18,11 +18,11 @@ that did not take part in the op.
 
 Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
 ---
- src/osdc/SplitOp.cc | 11 +++++++++++
- 1 file changed, 11 insertions(+)
+ src/osdc/SplitOp.cc | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
 
 diff --git a/src/osdc/SplitOp.cc b/src/osdc/SplitOp.cc
-index f0a219c22b8..98800f4f8ea 100644
+index 962f537caad..a32ee9dbd7f 100644
 --- a/src/osdc/SplitOp.cc
 +++ b/src/osdc/SplitOp.cc
 @@ -288,6 +288,10 @@ std::pair<SplitOp::extent_set, bufferlist> ReplicaSplitOp::assemble_buffer_spars
@@ -36,27 +36,26 @@ index f0a219c22b8..98800f4f8ea 100644
      for (auto [off, len] : *sr.details.at(ops_index).e) {
        extents_out.insert(off, len);
      }
-@@ -307,6 +311,10 @@ std::pair<SplitOp::extent_set, bufferlist> ReplicaSplitOp::assemble_buffer_spars
+@@ -307,6 +311,9 @@ std::pair<SplitOp::extent_set, bufferlist> ReplicaSplitOp::assemble_buffer_spars
   */
  void ReplicaSplitOp::assemble_buffer_read(bufferlist &bl_out, int ops_index) const {
    for (auto && [acting_index, sr] : sub_reads) {
-+    // Ops with fewer chunks than sub-reads do not use every sub-read.
 +    if (!sr.details.contains(ops_index)) {
 +      continue;
 +    }
      bl_out.append(sr.details.at(ops_index).bl);
    }
  }
-@@ -343,6 +351,9 @@ void ReplicaSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
+@@ -343,6 +350,9 @@ void ReplicaSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
    uint64_t slice_count = replica_min_shard_read_size == 0 ? 1 :
                            std::min(length / replica_min_shard_read_size,
                                     valid_indices.size());
 +  // A multi-op request may carry a read shorter than the minimum split
 +  // size; serve it whole from the reference OSD.
 +  slice_count = std::max<uint64_t>(slice_count, 1);
-   // Round up so chunk_count cannot exceed slice_count and reuse a sub-read.
+   // Round up, otherwise chunk_count can exceed slice_count and reuse a
+   // sub-read.
    uint64_t chunk_size = p2roundup(div_round_up(length, slice_count),
-                                   (uint64_t)CEPH_PAGE_SIZE);
 -- 
 2.55.0
 

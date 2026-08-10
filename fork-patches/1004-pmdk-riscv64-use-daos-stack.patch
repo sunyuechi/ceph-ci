@@ -1,6 +1,6 @@
-From 029b669277474a9a3dea39e001a85b0029e6ebb6 Mon Sep 17 00:00:00 2001
+From f39f0f881a6cee245f5931f6b30343c58798fe3f Mon Sep 17 00:00:00 2001
 From: Sun Yuechi <sunyuechi@iscas.ac.cn>
-Date: Sat, 13 Jun 2026 11:34:24 +0800
+Date: Sun, 9 Aug 2026 20:37:03 -0700
 Subject: [PATCH] cmake: build pmdk from daos-stack on riscv64
 
 ceph/pmdk 1.10 has no RISC-V support; its Makefile.inc aborts with
@@ -18,10 +18,10 @@ Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
  1 file changed, 16 insertions(+), 3 deletions(-)
 
 diff --git a/cmake/modules/Buildpmdk.cmake b/cmake/modules/Buildpmdk.cmake
-index 03a17b99436..673a0bf64ac 100644
+index 7377fc9..b0a0c21 100644
 --- a/cmake/modules/Buildpmdk.cmake
 +++ b/cmake/modules/Buildpmdk.cmake
-@@ -6,10 +6,20 @@ function(build_pmdk enable_ndctl)
+@@ -6,10 +6,20 @@ function(build_pmdk)
      set(source_dir_args
        SOURCE_DIR "${PROJECT_SOURCE_DIR}/src/pmdk")
    else()
@@ -44,22 +44,22 @@ index 03a17b99436..673a0bf64ac 100644
        GIT_SHALLOW TRUE
        GIT_CONFIG advice.detachedHead=false)
    endif()
-@@ -30,11 +40,14 @@ function(build_pmdk enable_ndctl)
+@@ -24,11 +34,14 @@ function(build_pmdk)
    endif()
  
    set(pmdk_cflags "-Wno-error -fno-lto")
 +  # daos-stack pmdk turns the "no NDCTL -> can't detect dirty shutdowns / bad
 +  # blocks" warnings into hard build errors; acknowledge them so libpmemobj
-+  # builds without NDCTL (matches the long-standing ceph/pmdk 1.10 behavior).
++  # builds without NDCTL (matches ceph/pmdk 1.10 behavior).
    include(ExternalProject)
    ExternalProject_Add(pmdk_ext
        ${source_dir_args}
        CONFIGURE_COMMAND ""
--      BUILD_COMMAND ${make_cmd} CC=${CMAKE_C_COMPILER} "EXTRA_CFLAGS=${pmdk_cflags}" NDCTL_ENABLE=${ndctl} BUILD_EXAMPLES=n BUILD_BENCHMARKS=n DOC=n
-+      BUILD_COMMAND ${make_cmd} CC=${CMAKE_C_COMPILER} "EXTRA_CFLAGS=${pmdk_cflags}" NDCTL_ENABLE=${ndctl} PMEMOBJ_IGNORE_DIRTY_SHUTDOWN=y PMEMOBJ_IGNORE_BAD_BLOCKS=y BUILD_EXAMPLES=n BUILD_BENCHMARKS=n DOC=n
+-      BUILD_COMMAND ${make_cmd} CC=${CMAKE_C_COMPILER} "EXTRA_CFLAGS=${pmdk_cflags}" NDCTL_ENABLE=n BUILD_EXAMPLES=n BUILD_BENCHMARKS=n DOC=n
++      BUILD_COMMAND ${make_cmd} CC=${CMAKE_C_COMPILER} "EXTRA_CFLAGS=${pmdk_cflags}" NDCTL_ENABLE=n PMEMOBJ_IGNORE_DIRTY_SHUTDOWN=y PMEMOBJ_IGNORE_BAD_BLOCKS=y BUILD_EXAMPLES=n BUILD_BENCHMARKS=n DOC=n
        BUILD_IN_SOURCE 1
        BUILD_BYPRODUCTS "<SOURCE_DIR>/src/${PMDK_LIB_DIR}/libpmem.a" "<SOURCE_DIR>/src/${PMDK_LIB_DIR}/libpmemobj.a"
        INSTALL_COMMAND "")
 -- 
-2.54.0
+2.55.0
 

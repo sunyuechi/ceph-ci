@@ -1,4 +1,4 @@
-From dd34e993ea563f298107dc149653b0376183cb06 Mon Sep 17 00:00:00 2001
+From 5e0595bb19e73256051cb748bac85fd516472330 Mon Sep 17 00:00:00 2001
 From: Sun Yuechi <sunyuechi@iscas.ac.cn>
 Date: Tue, 14 Jul 2026 14:31:40 +0800
 Subject: [PATCH 1/4] osdc: fix ReplicaSplitOp chunk distribution and
@@ -24,12 +24,12 @@ them, matching ECSplitOp.
 
 Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
 ---
- src/osdc/SplitOp.cc | 65 ++++++++++++++++++++++++---------------------
- src/osdc/SplitOp.h  | 11 +++++++-
- 2 files changed, 45 insertions(+), 31 deletions(-)
+ src/osdc/SplitOp.cc | 61 +++++++++++++++++++++++----------------------
+ src/osdc/SplitOp.h  | 10 +++++++-
+ 2 files changed, 40 insertions(+), 31 deletions(-)
 
 diff --git a/src/osdc/SplitOp.cc b/src/osdc/SplitOp.cc
-index 7fbc6559544..f0a219c22b8 100644
+index 7fbc6559544..962f537caad 100644
 --- a/src/osdc/SplitOp.cc
 +++ b/src/osdc/SplitOp.cc
 @@ -9,6 +9,8 @@
@@ -101,7 +101,7 @@ index 7fbc6559544..f0a219c22b8 100644
  
    uint64_t replica_min_shard_read_size
      = objecter.get_min_split_replica_read_size();
-@@ -352,13 +342,22 @@ void ReplicaSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
+@@ -352,13 +342,23 @@ void ReplicaSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
    uint64_t length = op.op.extent.length;
    uint64_t slice_count = replica_min_shard_read_size == 0 ? 1 :
                            std::min(length / replica_min_shard_read_size,
@@ -113,7 +113,8 @@ index 7fbc6559544..f0a219c22b8 100644
 -  for (unsigned i = reference_sub_read; length > 0; i = (i + 1 == osds.size()) ? 0 : i + 1) {
 -    int acting_index = i;
 +                                   valid_indices.size());
-+  // Round up so chunk_count cannot exceed slice_count and reuse a sub-read.
++  // Round up, otherwise chunk_count can exceed slice_count and reuse a
++  // sub-read.
 +  uint64_t chunk_size = p2roundup(div_round_up(length, slice_count),
 +                                  (uint64_t)CEPH_PAGE_SIZE);
 +  uint64_t chunk_count = div_round_up(length, chunk_size);
@@ -131,7 +132,7 @@ index 7fbc6559544..f0a219c22b8 100644
      if (!sub_reads.contains(acting_index)) {
        sub_reads.emplace(acting_index, orig_op->ops.size() + 1);
      }
-@@ -375,6 +374,7 @@ void ReplicaSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
+@@ -375,6 +375,7 @@ void ReplicaSplitOp::init_read(OSDOp &op, bool sparse, int ops_index) {
      offset += len;
      length -= len;
    }
@@ -139,23 +140,11 @@ index 7fbc6559544..f0a219c22b8 100644
  }
  
  #undef dout_prefix
-@@ -760,6 +760,11 @@ bool validate_operations(Objecter::Op *op, const pg_pool_t *pi, bool is_erasure,
-           ldout(cct, DBG_LVL) << __func__ << " REJECT: Zero length read" << dendl;
-           return false;
-         }
-+        if (length >= (1ULL << 62)) {
-+          // Guard the round-up arithmetic in init_read() from wrapping.
-+          ldout(cct, DBG_LVL) << __func__ << " REJECT: Read too long" << dendl;
-+          return false;
-+        }
-         if ((is_erasure && length > 0) ||
-             (!is_erasure && length >= replica_min_read_size)) {
-           suitable_read_found = true;
 diff --git a/src/osdc/SplitOp.h b/src/osdc/SplitOp.h
-index ae0a86d3c93..9e9fdecd752 100644
+index ae0a86d3c93..e2b0f41d86a 100644
 --- a/src/osdc/SplitOp.h
 +++ b/src/osdc/SplitOp.h
-@@ -557,7 +557,16 @@ class ReplicaSplitOp : public SplitOp {
+@@ -557,7 +557,15 @@ class ReplicaSplitOp : public SplitOp {
    bool version_mismatch() const override;
    
    void init_reference_sub_read() override;
@@ -167,7 +156,6 @@ index ae0a86d3c93..9e9fdecd752 100644
 +   */
 +  std::vector<int> valid_indices;
 +
-+  /** Position of reference_sub_read within valid_indices. */
 +  size_t reference_valid_index = 0;
 +
    /**

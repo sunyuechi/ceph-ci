@@ -1,4 +1,4 @@
-From 7d06197e175f6d9da80f5430ed612faf1c473510 Mon Sep 17 00:00:00 2001
+From 2cd80eabf67c03ea1fa0a1c261c1f9969b79cea0 Mon Sep 17 00:00:00 2001
 From: Sun Yuechi <sunyuechi@iscas.ac.cn>
 Date: Tue, 14 Jul 2026 14:31:40 +0800
 Subject: [PATCH 3/4] test/librados: cover ReplicaSplitOp reassembly and
@@ -12,18 +12,17 @@ below the minimum split size in a multi-op request.
 
 Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
 ---
- src/test/librados/split_op_cxx.cc | 218 +++++++++++++++++++++---------
- 1 file changed, 152 insertions(+), 66 deletions(-)
+ src/test/librados/split_op_cxx.cc | 209 ++++++++++++++++++++----------
+ 1 file changed, 144 insertions(+), 65 deletions(-)
 
 diff --git a/src/test/librados/split_op_cxx.cc b/src/test/librados/split_op_cxx.cc
-index 4abc416bb92..53741fd8125 100644
+index eecb6d3a2c6..ff4c3d82982 100644
 --- a/src/test/librados/split_op_cxx.cc
 +++ b/src/test/librados/split_op_cxx.cc
-@@ -11,7 +11,72 @@ using namespace librados;
+@@ -12,6 +12,21 @@ using namespace librados;
  using namespace cls;
  using namespace rados::cls;
  
--typedef RadosTestPP LibRadosSplitOpPP;
 +namespace {
 +// Misordered reassembly of split reads is invisible with all-zero data,
 +// so tests that verify read contents need a patterned buffer.
@@ -39,13 +38,17 @@ index 4abc416bb92..53741fd8125 100644
 +}
 +} // namespace
 +
-+class LibRadosSplitOpPP : public RadosTestPP {
+ class LibRadosSplitOpPP : public RadosTestPP {
+ public:
+   static void SetUpTestCase() {
+@@ -22,6 +37,49 @@ public:
+     ASSERT_EQ("", create_pool_pp(pool_name_default, s_cluster, 3));
+     s_cluster.wait_for_latest_osdmap();
+   }
++
 +protected:
-+  /**
-+   * Commit the preceding write's PG log entry by writing a second object
-+   * in the same PG; an uncommitted entry bounces split reads.
-+   * Contains fatal assertions; call via ASSERT_NO_FATAL_FAILURE().
-+   */
++  // Write a second object in the same PG; that flushes the commit of the
++  // preceding write, which split reads need. Uses ASSERT_*.
 +  void stabilize_pg_log(const bufferlist &bl) {
 +    uint32_t hash_position;
 +    ASSERT_EQ(0, ioctx.get_object_pg_hash_position2("foo", &hash_position));
@@ -64,12 +67,8 @@ index 4abc416bb92..53741fd8125 100644
 +    ASSERT_TRUE(AssertOperateWithoutSplitOp(0, other_object, &write2));
 +  }
 +
-+  /**
-+   * Write num_slices * osd_min_split_replica_read_size + extra_bytes of
-+   * patterned data to "foo", then write a second object in the same PG to
-+   * stabilize the log. Returns the written data in *written.
-+   * Contains fatal assertions; call via ASSERT_NO_FATAL_FAILURE().
-+   */
++  // Write num_slices * osd_min_split_replica_read_size + extra_bytes of
++  // patterned data to "foo". Uses ASSERT_*.
 +  void write_pattern_object(uint64_t num_slices, uint64_t extra_bytes,
 +                            bufferlist *written) {
 +    std::string min_split_size_str;
@@ -89,11 +88,10 @@ index 4abc416bb92..53741fd8125 100644
 +
 +    *written = std::move(bl);
 +  }
-+};
- typedef RadosTestECPP LibRadosSplitOpECPP;
+ };
  
- // After a write is committed, it isn't necessarily true that the log is
-@@ -34,25 +99,10 @@ TEST_P(LibRadosSplitOpPP, BigRead) {
+ typedef RadosTestECPP LibRadosSplitOpECPP;
+@@ -46,25 +104,10 @@ TEST_P(LibRadosSplitOpPP, BigRead) {
    uint64_t min_split_size = std::stoull(min_split_size_str);
    bufferlist bl;
    bl.append_zero(3 * min_split_size);
@@ -121,7 +119,7 @@ index 4abc416bb92..53741fd8125 100644
  
    ObjectReadOperation read;
    read.read(0, bl.length(), NULL, NULL);
-@@ -68,24 +118,10 @@ TEST_P(LibRadosSplitOpPP, ReadTwoShards) {
+@@ -80,24 +123,10 @@ TEST_P(LibRadosSplitOpPP, ReadTwoShards) {
    // Write data large enough to cover multiple shards
    bufferlist bl;
    bl.append_zero(min_split_size * 3);
@@ -148,7 +146,7 @@ index 4abc416bb92..53741fd8125 100644
  
    // Test 1: Read exactly osd_min_split_replica_read_size - should NOT split
    {
-@@ -137,24 +173,10 @@ TEST_P(LibRadosSplitOpPP, StatBeforeRead) {
+@@ -149,24 +178,10 @@ TEST_P(LibRadosSplitOpPP, StatBeforeRead) {
    // Use buffer at least 2x min_split_size to force splitting across replicas
    bufferlist bl;
    bl.append_zero(min_split_size * 2);
@@ -175,7 +173,7 @@ index 4abc416bb92..53741fd8125 100644
  
    // This test verifies the bug fix: STAT operation comes BEFORE READ
    // In ReplicaSplitOp::init(), when processing ops in order:
-@@ -196,26 +218,12 @@ TEST_P(LibRadosSplitOpPP, GetXattrBeforeRead) {
+@@ -208,26 +223,12 @@ TEST_P(LibRadosSplitOpPP, GetXattrBeforeRead) {
    std::string attr_value = "my_attr";
  
    bl.append_zero(min_split_size * 2);
@@ -204,7 +202,7 @@ index 4abc416bb92..53741fd8125 100644
  
    // Another variant of the bug: GETXATTR before READ
    // This verifies that init_reference_sub_read() is called before processing GETXATTR
-@@ -234,6 +242,84 @@ TEST_P(LibRadosSplitOpPP, GetXattrBeforeRead) {
+@@ -246,6 +247,84 @@ TEST_P(LibRadosSplitOpPP, GetXattrBeforeRead) {
    ASSERT_EQ(min_split_size * 2, read_bl.length());
  }
  
