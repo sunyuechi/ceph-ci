@@ -38,10 +38,7 @@ TREE_PATCHES=(
 	1097-test-add-RISC-V-architecture-probe-tests.patch
 
 	# https://github.com/ceph/ceph/pull/69898
-	1099-librbd-cache-pwl-fix-deadlock-in-AbstractWriteLog-de.patch
-	1100-librbd-cache-pwl-join-tp_pwl-workers-before-derived-.patch
-	1101-librbd-cache-pwl-cancel-periodic-stats-timer-in-dest.patch
-
+	1099-librbd-cache-pwl-fix-deadlock.patch
 	# https://github.com/ceph/ceph/pull/70959
 	1103-rbd-mirror-deadlock.patch
 
@@ -79,10 +76,7 @@ TREE_PATCHES=(
 	1133-test-osd-add-unittest-for-proc_master_log-wind-forwa.patch
 
 	# https://github.com/ceph/ceph/pull/70207
-	1134-osdc-fix-ReplicaSplitOp-chunk-distribution-and-reass.patch
-	1135-osdc-handle-reads-below-the-min-split-size-in-multi-.patch
-	1136-test-librados-cover-ReplicaSplitOp-reassembly-and-mu.patch
-	1137-osdc-avoid-divide-by-zero-in-prepare_single_op-on-re.patch
+	1134-fix-replicasplitop-read.patch
 
 	# https://github.com/ceph/ceph/pull/70211
 	1140-src-common-optimize-Zvbc-CRC32C-for-riscv64.patch
