@@ -1,4 +1,37 @@
-From fc38df13ac10b19676152ca6e64d9b605d51412b Mon Sep 17 00:00:00 2001
+From 86a80abc5fd05c4959cd3b35ff59c39a0d0f72cd Mon Sep 17 00:00:00 2001
+From: Ilya Dryomov <idryomov@gmail.com>
+Date: Sat, 20 Jun 2026 21:19:18 +0200
+Subject: [PATCH 1/3] open_image fix
+
+Signed-off-by: Ilya Dryomov <idryomov@gmail.com>
+---
+ src/test/librbd/test_fixture.cc | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/test/librbd/test_fixture.cc b/src/test/librbd/test_fixture.cc
+index 29d77b40f391..5aa85715e42a 100644
+--- a/src/test/librbd/test_fixture.cc
++++ b/src/test/librbd/test_fixture.cc
+@@ -83,9 +83,15 @@ void TestFixture::TearDown() {
+ int TestFixture::open_image(const std::string &image_name,
+ 			    librbd::ImageCtx **ictx) {
+   *ictx = new librbd::ImageCtx(image_name.c_str(), "", nullptr, m_ioctx, false);
+-  m_ictxs.insert(*ictx);
+ 
+-  return (*ictx)->state->open(0);
++  int r = (*ictx)->state->open(0);
++  if (r != 0) {
++    *ictx = nullptr;
++    return r;
++  }
++
++  m_ictxs.insert(*ictx);
++  return 0;
+ }
+ 
+ int TestFixture::snap_create(librbd::ImageCtx &ictx,
+
+From 5836184d9be208534cf677aa591fb0c069732392 Mon Sep 17 00:00:00 2001
 From: Ilya Dryomov <idryomov@gmail.com>
 Date: Sat, 20 Jun 2026 10:53:36 +0200
 Subject: [PATCH 2/3] internal api + test_Encryption.cc
@@ -28,7 +61,7 @@ Signed-off-by: Ilya Dryomov <idryomov@gmail.com>
  create mode 100644 src/test/librbd/test_Encryption.cc
 
 diff --git a/src/librbd/api/Image.cc b/src/librbd/api/Image.cc
-index bc2d523a1ac..bbd6fcd636e 100644
+index bc2d523a1ac9..bbd6fcd636ed 100644
 --- a/src/librbd/api/Image.cc
 +++ b/src/librbd/api/Image.cc
 @@ -971,7 +971,7 @@ int Image<I>::flatten_children(I *ictx, const char* snap_name,
@@ -50,7 +83,7 @@ index bc2d523a1ac..bbd6fcd636e 100644
    return cond.wait();
  }
 diff --git a/src/librbd/api/Image.h b/src/librbd/api/Image.h
-index 6dea1411f04..b0a2c680d5a 100644
+index 6dea1411f04c..b0a2c680d5a7 100644
 --- a/src/librbd/api/Image.h
 +++ b/src/librbd/api/Image.h
 @@ -72,7 +72,7 @@ struct Image {
@@ -63,7 +96,7 @@ index 6dea1411f04..b0a2c680d5a 100644
                               size_t spec_count, bool c_api);
  };
 diff --git a/src/librbd/crypto/EncryptionFormat.h b/src/librbd/crypto/EncryptionFormat.h
-index cb652853874..b9dd6d72c6b 100644
+index cb6528538742..b9dd6d72c6bf 100644
 --- a/src/librbd/crypto/EncryptionFormat.h
 +++ b/src/librbd/crypto/EncryptionFormat.h
 @@ -19,7 +19,8 @@ struct EncryptionFormat {
@@ -77,7 +110,7 @@ index cb652853874..b9dd6d72c6b 100644
                      Context* on_finish) = 0;
    virtual void flatten(ImageCtxT* ictx, Context* on_finish) = 0;
 diff --git a/src/librbd/crypto/FormatRequest.cc b/src/librbd/crypto/FormatRequest.cc
-index b2b2d041662..84f191069ce 100644
+index b2b2d0416623..84f191069ce4 100644
 --- a/src/librbd/crypto/FormatRequest.cc
 +++ b/src/librbd/crypto/FormatRequest.cc
 @@ -27,9 +27,10 @@ using librbd::util::create_context_callback;
@@ -102,10 +135,10 @@ index b2b2d041662..84f191069ce 100644
  
  template <typename I>
 diff --git a/src/librbd/crypto/FormatRequest.h b/src/librbd/crypto/FormatRequest.h
-index 4065827e664..0f4532b7334 100644
+index 4065827e6640..0f4532b73348 100644
 --- a/src/librbd/crypto/FormatRequest.h
 +++ b/src/librbd/crypto/FormatRequest.h
-@@ -21,11 +21,14 @@ public:
+@@ -21,11 +21,14 @@ class FormatRequest {
      using EncryptionFormat = decltype(I::encryption_format);
  
      static FormatRequest* create(
@@ -123,7 +156,7 @@ index 4065827e664..0f4532b7334 100644
      void send();
      void handle_shutdown_crypto(int r);
      void format();
-@@ -38,6 +41,7 @@ private:
+@@ -38,6 +41,7 @@ class FormatRequest {
      I* m_image_ctx;
  
      EncryptionFormat m_format;
@@ -132,7 +165,7 @@ index 4065827e664..0f4532b7334 100644
  };
  
 diff --git a/src/librbd/crypto/luks/LUKSEncryptionFormat.cc b/src/librbd/crypto/luks/LUKSEncryptionFormat.cc
-index 23d3b6e1ca6..ffd2d9d0b31 100644
+index 23d3b6e1ca68..ffd2d9d0b311 100644
 --- a/src/librbd/crypto/luks/LUKSEncryptionFormat.cc
 +++ b/src/librbd/crypto/luks/LUKSEncryptionFormat.cc
 @@ -25,7 +25,8 @@ void EncryptionFormat<I>::flatten(I* image_ctx, Context* on_finish) {
@@ -174,10 +207,10 @@ index 23d3b6e1ca6..ffd2d9d0b31 100644
  }
  
 diff --git a/src/librbd/crypto/luks/LUKSEncryptionFormat.h b/src/librbd/crypto/luks/LUKSEncryptionFormat.h
-index 5883f9500a0..63bf4d3fd8d 100644
+index 5883f9500a0f..63bf4d3fd8db 100644
 --- a/src/librbd/crypto/luks/LUKSEncryptionFormat.h
 +++ b/src/librbd/crypto/luks/LUKSEncryptionFormat.h
-@@ -40,7 +40,8 @@ public:
+@@ -40,7 +40,8 @@ class LUKSEncryptionFormat : public EncryptionFormat<ImageCtxT> {
      return std::make_unique<LUKSEncryptionFormat>(m_passphrase);
    }
  
@@ -187,7 +220,7 @@ index 5883f9500a0..63bf4d3fd8d 100644
    void load(ImageCtxT* ictx, std::string* detected_format_name,
              Context* on_finish) override;
  
-@@ -58,7 +59,8 @@ public:
+@@ -58,7 +59,8 @@ class LUKS1EncryptionFormat : public EncryptionFormat<ImageCtxT> {
      return std::make_unique<LUKS1EncryptionFormat>(m_alg, m_passphrase);
    }
  
@@ -197,7 +230,7 @@ index 5883f9500a0..63bf4d3fd8d 100644
    void load(ImageCtxT* ictx, std::string* detected_format_name,
              Context* on_finish) override;
  
-@@ -77,7 +79,8 @@ public:
+@@ -77,7 +79,8 @@ class LUKS2EncryptionFormat : public EncryptionFormat<ImageCtxT> {
      return std::make_unique<LUKS2EncryptionFormat>(m_alg, m_passphrase);
    }
  
@@ -208,7 +241,7 @@ index 5883f9500a0..63bf4d3fd8d 100644
              Context* on_finish) override;
  
 diff --git a/src/librbd/librbd.cc b/src/librbd/librbd.cc
-index fac2c5a2949..0dc1c20f75a 100644
+index fac2c5a29497..0dc1c20f75ac 100644
 --- a/src/librbd/librbd.cc
 +++ b/src/librbd/librbd.cc
 @@ -2187,7 +2187,7 @@ namespace librbd {
@@ -230,7 +263,7 @@ index fac2c5a2949..0dc1c20f75a 100644
  
  extern "C" int rbd_encryption_load(rbd_image_t image,
 diff --git a/src/test/librbd/CMakeLists.txt b/src/test/librbd/CMakeLists.txt
-index 6b3d8c2681c..f93d6d34a13 100644
+index 6b3d8c2681c6..f93d6d34a13c 100644
 --- a/src/test/librbd/CMakeLists.txt
 +++ b/src/test/librbd/CMakeLists.txt
 @@ -12,6 +12,7 @@ set(librbd_test
@@ -242,7 +275,7 @@ index 6b3d8c2681c..f93d6d34a13 100644
    test_Migration.cc
    test_MirroringWatcher.cc
 diff --git a/src/test/librbd/crypto/test_mock_FormatRequest.cc b/src/test/librbd/crypto/test_mock_FormatRequest.cc
-index 516f7d2a41e..58c848f2a84 100644
+index 516f7d2a41e5..58c848f2a841 100644
 --- a/src/test/librbd/crypto/test_mock_FormatRequest.cc
 +++ b/src/test/librbd/crypto/test_mock_FormatRequest.cc
 @@ -99,7 +99,7 @@ struct TestMockCryptoFormatRequest : public TestMockFixture {
@@ -333,7 +366,7 @@ index 516f7d2a41e..58c848f2a84 100644
    ASSERT_EQ(ETIMEDOUT, finished_cond.wait_for(0));
    expect_image_flush(0);
 diff --git a/src/test/librbd/mock/crypto/MockEncryptionFormat.h b/src/test/librbd/mock/crypto/MockEncryptionFormat.h
-index acd4f9f98e8..40e8eabcfb0 100644
+index acd4f9f98e87..40e8eabcfb09 100644
 --- a/src/test/librbd/mock/crypto/MockEncryptionFormat.h
 +++ b/src/test/librbd/mock/crypto/MockEncryptionFormat.h
 @@ -14,7 +14,7 @@ namespace crypto {
@@ -346,7 +379,7 @@ index acd4f9f98e8..40e8eabcfb0 100644
    MOCK_METHOD2(flatten, void(MockImageCtx*, Context*));
    MOCK_METHOD0(get_crypto, MockCryptoInterface*());
 diff --git a/src/test/librbd/operation/test_mock_SnapshotRemoveRequest.cc b/src/test/librbd/operation/test_mock_SnapshotRemoveRequest.cc
-index ef192860a9b..ebf3966737d 100644
+index ef192860a9b2..ebf3966737df 100644
 --- a/src/test/librbd/operation/test_mock_SnapshotRemoveRequest.cc
 +++ b/src/test/librbd/operation/test_mock_SnapshotRemoveRequest.cc
 @@ -395,8 +395,7 @@ TEST_F(TestMockOperationSnapshotRemoveRequest, FlattenedCloneRemovesChild) {
@@ -371,7 +404,7 @@ index ef192860a9b..ebf3966737d 100644
    MockImageCtx mock_image_ctx(*ictx);
 diff --git a/src/test/librbd/test_Encryption.cc b/src/test/librbd/test_Encryption.cc
 new file mode 100644
-index 00000000000..26d93879afd
+index 000000000000..26d93879afd4
 --- /dev/null
 +++ b/src/test/librbd/test_Encryption.cc
 @@ -0,0 +1,1135 @@
@@ -1511,7 +1544,7 @@ index 00000000000..26d93879afd
 +
 +#endif // HAVE_LIBCRYPTSETUP
 diff --git a/src/test/librbd/test_fixture.cc b/src/test/librbd/test_fixture.cc
-index 5aa85715e42..c968be28d39 100644
+index 5aa85715e42a..c968be28d39c 100644
 --- a/src/test/librbd/test_fixture.cc
 +++ b/src/test/librbd/test_fixture.cc
 @@ -107,12 +107,12 @@ int TestFixture::snap_protect(librbd::ImageCtx &ictx,
@@ -1532,10 +1565,10 @@ index 5aa85715e42..c968be28d39 100644
    return ictx->operations->resize(size, true, prog_ctx);
  }
 diff --git a/src/test/librbd/test_fixture.h b/src/test/librbd/test_fixture.h
-index 0369fc7c8d6..3ae07cce83b 100644
+index 0369fc7c8d61..3ae07cce83b2 100644
 --- a/src/test/librbd/test_fixture.h
 +++ b/src/test/librbd/test_fixture.h
-@@ -30,8 +30,8 @@ public:
+@@ -30,8 +30,8 @@ class TestFixture : public ::testing::Test {
    int snap_create(librbd::ImageCtx &ictx, const std::string &snap_name);
    int snap_protect(librbd::ImageCtx &ictx, const std::string &snap_name);
  
@@ -1547,7 +1580,7 @@ index 0369fc7c8d6..3ae07cce83b 100644
    int lock_image(librbd::ImageCtx &ictx, ClsLockType lock_type,
                   const std::string &cookie);
 diff --git a/src/test/librbd/test_librbd.cc b/src/test/librbd/test_librbd.cc
-index 6f142b91157..95d0373ee56 100644
+index 6f142b911576..95d0373ee56f 100644
 --- a/src/test/librbd/test_librbd.cc
 +++ b/src/test/librbd/test_librbd.cc
 @@ -2465,1341 +2465,6 @@ TEST_F(TestLibRBD, TestEncryptionLUKS2)
@@ -2893,7 +2926,7 @@ index 6f142b91157..95d0373ee56 100644
  {
    rados_ioctx_t ioctx;
 diff --git a/src/test/librbd/test_main.cc b/src/test/librbd/test_main.cc
-index 85e9849658a..f871a4e513b 100644
+index 85e9849658a2..f871a4e513b3 100644
 --- a/src/test/librbd/test_main.cc
 +++ b/src/test/librbd/test_main.cc
 @@ -12,6 +12,7 @@
@@ -2913,7 +2946,7 @@ index 85e9849658a..f871a4e513b 100644
    register_test_image_watcher();
    register_test_internal();
 diff --git a/src/test/librbd/test_support.cc b/src/test/librbd/test_support.cc
-index bf343138ce5..a0528051163 100644
+index bf343138ce58..a05280511636 100644
 --- a/src/test/librbd/test_support.cc
 +++ b/src/test/librbd/test_support.cc
 @@ -54,7 +54,11 @@ int create_image_full_pp(librbd::RBD &rbd, librados::IoCtx &ioctx,
@@ -2930,7 +2963,7 @@ index bf343138ce5..a0528051163 100644
    if (!get_features(&features)) {
      // ensure old-format tests actually use the old format
 diff --git a/src/test/librbd/test_support.h b/src/test/librbd/test_support.h
-index 4ab93c147c1..288a2145fbe 100644
+index 4ab93c147c1d..288a2145fbe6 100644
 --- a/src/test/librbd/test_support.h
 +++ b/src/test/librbd/test_support.h
 @@ -16,6 +16,8 @@ bool get_features(uint64_t *features);
@@ -2942,6 +2975,1125 @@ index 4ab93c147c1..288a2145fbe 100644
  int create_image_full_pp(librbd::RBD &rbd, librados::IoCtx &ioctx,
                           const std::string &name, uint64_t size,
                           uint64_t features, bool old_format, int *order);
--- 
-2.54.0
 
+From 2f0ed3df82c0093dedd2838fd7e23026be8f8d0f Mon Sep 17 00:00:00 2001
+From: Ilya Dryomov <idryomov@gmail.com>
+Date: Sun, 21 Jun 2026 19:37:37 +0200
+Subject: [PATCH 3/3] test_DiffIterate.cc
+
+Signed-off-by: Ilya Dryomov <idryomov@gmail.com>
+---
+ src/test/librbd/CMakeLists.txt      |   1 +
+ src/test/librbd/test_DiffIterate.cc | 547 ++++++++++++++++++++++++++++
+ src/test/librbd/test_librbd.cc      | 504 -------------------------
+ src/test/librbd/test_main.cc        |   2 +
+ 4 files changed, 550 insertions(+), 504 deletions(-)
+ create mode 100644 src/test/librbd/test_DiffIterate.cc
+
+diff --git a/src/test/librbd/CMakeLists.txt b/src/test/librbd/CMakeLists.txt
+index f93d6d34a13c..9a01716fd4e9 100644
+--- a/src/test/librbd/CMakeLists.txt
++++ b/src/test/librbd/CMakeLists.txt
+@@ -12,6 +12,7 @@ set(librbd_test
+   test_internal.cc
+   test_mirroring.cc
+   test_DeepCopy.cc
++  test_DiffIterate.cc
+   test_Encryption.cc
+   test_Groups.cc
+   test_Migration.cc
+diff --git a/src/test/librbd/test_DiffIterate.cc b/src/test/librbd/test_DiffIterate.cc
+new file mode 100644
+index 000000000000..89864050cd2d
+--- /dev/null
++++ b/src/test/librbd/test_DiffIterate.cc
+@@ -0,0 +1,547 @@
++// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:nil -*-
++// vim: ts=8 sw=2 sts=2 expandtab
++
++#include "include/rbd/librbd.h"
++#include "include/rbd/librbd.hpp"
++#include "test/librbd/test_fixture.h"
++#include "test/librbd/test_support.h"
++#include "librbd/api/Image.h"
++
++void register_test_diff_iterate() {
++}
++
++struct diff_extent {
++  diff_extent(uint64_t _offset, uint64_t _length, bool _exists,
++              uint64_t object_size) :
++    offset(_offset), length(_length), exists(_exists)
++  {
++    if (object_size != 0) {
++      offset -= offset % object_size;
++      length = object_size;
++    }
++  }
++  uint64_t offset;
++  uint64_t length;
++  bool exists;
++  bool operator==(const diff_extent& o) const {
++    return offset == o.offset && length == o.length && exists == o.exists;
++  }
++};
++
++template <typename Policy>
++class DiffIterateDeterministicTest : public TestFixture {
++public:
++  static constexpr bool whole_object = Policy::whole_object;
++
++  static int format(librbd::ImageCtx* ictx, librbd::encryption_format_t format,
++                    librbd::encryption_options_t opts, size_t opts_size,
++                    bool c_api = false) {
++    // format with insecure_fast_mode=true to save time and CPU cycles
++    return librbd::api::Image<>::encryption_format(ictx, format, opts,
++                                                   opts_size, true, c_api);
++  }
++
++  static int vector_cb(uint64_t off, size_t len, int exists, void *arg) {
++    auto diff = static_cast<std::vector<diff_extent>*>(arg);
++    diff->push_back(diff_extent(off, len, exists, 0));
++    return 0;
++  }
++
++  static void validate_object_map(rbd_image_t image) {
++    uint64_t flags;
++    ASSERT_EQ(0, rbd_get_flags(image, &flags));
++    ASSERT_EQ(0, flags & RBD_FLAG_OBJECT_MAP_INVALID);
++  }
++
++  static void validate_object_map(librbd::Image& image) {
++    uint64_t flags;
++    ASSERT_EQ(0, image.get_flags(&flags));
++    ASSERT_EQ(0, flags & RBD_FLAG_OBJECT_MAP_INVALID);
++  }
++
++  void test_deterministic(uint64_t object_off, uint64_t len) {
++    std::string name = get_temp_image_name();
++    ASSERT_EQ(0, create_image_pp(m_rbd, m_ioctx, name, 20 << 20, 22));
++    librbd::ImageCtx* ictx;
++    ASSERT_EQ(0, open_image(name, &ictx));
++    test_deterministic(static_cast<rbd_image_t>(ictx), object_off, len, 1);
++    close_image(ictx);
++  }
++
++  void test_deterministic_pp(uint64_t object_off, uint64_t len) {
++    std::string name = get_temp_image_name();
++    ASSERT_EQ(0, create_image_pp(m_rbd, m_ioctx, name, 20 << 20, 22));
++    librbd::Image image;
++    ASSERT_EQ(0, m_rbd.open(m_ioctx, image, name.c_str(), NULL));
++    test_deterministic_pp(image, object_off, len, 1);
++  }
++
++#ifdef HAVE_LIBCRYPTSETUP
++
++  void test_deterministic_luks1(uint64_t object_off, uint64_t len) {
++    std::string name = get_temp_image_name();
++    ASSERT_EQ(0, create_image_pp(m_rbd, m_ioctx, name, 24 << 20, 22));
++    librbd::ImageCtx* ictx;
++    ASSERT_EQ(0, open_image(name, &ictx));
++    rbd_encryption_luks1_format_options_t fopts = {
++        RBD_ENCRYPTION_ALGORITHM_AES256, "some passphrase", 15};
++    ASSERT_EQ(0, format(ictx, RBD_ENCRYPTION_FORMAT_LUKS1, &fopts,
++                        sizeof(fopts), true));
++    test_deterministic(static_cast<rbd_image_t>(ictx), object_off, len, 512);
++    close_image(ictx);
++  }
++
++  void test_deterministic_luks1_pp(uint64_t object_off, uint64_t len) {
++    std::string name = get_temp_image_name();
++    ASSERT_EQ(0, create_image_pp(m_rbd, m_ioctx, name, 24 << 20, 22));
++    librbd::ImageCtx* ictx;
++    ASSERT_EQ(0, open_image(name, &ictx));
++    librbd::encryption_luks1_format_options_t fopts = {
++        RBD_ENCRYPTION_ALGORITHM_AES256, "some passphrase"};
++    ASSERT_EQ(0, format(ictx, RBD_ENCRYPTION_FORMAT_LUKS1, &fopts,
++                        sizeof(fopts)));
++    close_image(ictx);
++
++    librbd::Image image;
++    ASSERT_EQ(0, m_rbd.open(m_ioctx, image, name.c_str(), NULL));
++    ASSERT_EQ(0, image.encryption_load(RBD_ENCRYPTION_FORMAT_LUKS1, &fopts,
++                                       sizeof(fopts)));
++    test_deterministic_pp(image, object_off, len, 512);
++  }
++
++  void test_deterministic_luks2(uint64_t object_off, uint64_t len) {
++    std::string name = get_temp_image_name();
++    ASSERT_EQ(0, create_image_pp(m_rbd, m_ioctx, name, 36 << 20, 22));
++    librbd::ImageCtx* ictx;
++    ASSERT_EQ(0, open_image(name, &ictx));
++    rbd_encryption_luks2_format_options_t fopts = {
++        RBD_ENCRYPTION_ALGORITHM_AES256, "some passphrase", 15};
++    ASSERT_EQ(0, format(ictx, RBD_ENCRYPTION_FORMAT_LUKS2, &fopts,
++                        sizeof(fopts), true));
++    test_deterministic(static_cast<rbd_image_t>(ictx), object_off, len, 4096);
++    close_image(ictx);
++  }
++
++  void test_deterministic_luks2_pp(uint64_t object_off, uint64_t len) {
++    std::string name = get_temp_image_name();
++    ASSERT_EQ(0, create_image_pp(m_rbd, m_ioctx, name, 36 << 20, 22));
++    librbd::ImageCtx* ictx;
++    ASSERT_EQ(0, open_image(name, &ictx));
++    librbd::encryption_luks2_format_options_t fopts = {
++        RBD_ENCRYPTION_ALGORITHM_AES256, "some passphrase"};
++    ASSERT_EQ(0, format(ictx, RBD_ENCRYPTION_FORMAT_LUKS2, &fopts,
++                        sizeof(fopts)));
++    close_image(ictx);
++
++    librbd::Image image;
++    ASSERT_EQ(0, m_rbd.open(m_ioctx, image, name.c_str(), NULL));
++    ASSERT_EQ(0, image.encryption_load(RBD_ENCRYPTION_FORMAT_LUKS2, &fopts,
++                                       sizeof(fopts)));
++    test_deterministic_pp(image, object_off, len, 4096);
++  }
++
++#endif // HAVE_LIBCRYPTSETUP
++
++private:
++  void test_deterministic(rbd_image_t image, uint64_t object_off,
++                          uint64_t len, uint64_t block_size) {
++    uint64_t off1 = 0;
++    uint64_t off2 = 4 << 20;
++    uint64_t size = 20 << 20;
++    uint64_t extent_len = round_up_to(object_off + len, block_size);
++
++    rbd_image_info_t info;
++    ASSERT_EQ(0, rbd_stat(image, &info, sizeof(info)));
++    ASSERT_EQ(size, info.size);
++    ASSERT_EQ(5, info.num_objs);
++    ASSERT_EQ(4 << 20, info.obj_size);
++    ASSERT_EQ(22, info.order);
++
++    uint64_t object_size = 0;
++    if (whole_object) {
++      object_size = 1 << info.order;
++    }
++
++    std::vector<diff_extent> extents;
++    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    ASSERT_EQ(-ENOENT, rbd_diff_iterate2(image, "snap1", 0, size, true,
++                                         whole_object, vector_cb, &extents));
++
++    ASSERT_EQ(0, rbd_snap_create(image, "snap1"));
++
++    std::string buf(len, '1');
++    ASSERT_EQ(len, rbd_write(image, off1 + object_off, len, buf.data()));
++    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(1u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    extents.clear();
++
++    ASSERT_EQ(0, rbd_snap_create(image, "snap2"));
++
++    ASSERT_EQ(len, rbd_write(image, off2 + object_off, len, buf.data()));
++    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(2u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
++    extents.clear();
++
++    ASSERT_EQ(0, rbd_snap_create(image, "snap3"));
++
++    // 1. beginning of time -> HEAD
++    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(2u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
++    extents.clear();
++
++    // 2. snap1 -> HEAD
++    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap1", 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(2u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
++    extents.clear();
++
++    // 3. snap2 -> HEAD
++    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap2", 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(1u, extents.size());
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[0]);
++    extents.clear();
++
++    // 4. snap3 -> HEAD
++    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap3", 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    ASSERT_NO_FATAL_FAILURE(validate_object_map(image));
++    ASSERT_EQ(0, rbd_snap_set(image, "snap3"));
++
++    // 5. beginning of time -> snap3
++    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(2u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
++    extents.clear();
++
++    // 6. snap1 -> snap3
++    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap1", 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(2u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
++    extents.clear();
++
++    // 7. snap2 -> snap3
++    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap2", 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(1u, extents.size());
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[0]);
++    extents.clear();
++
++    // 8. snap3 -> snap3
++    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap3", 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    ASSERT_NO_FATAL_FAILURE(validate_object_map(image));
++    ASSERT_EQ(0, rbd_snap_set(image, "snap2"));
++
++    // 9. beginning of time -> snap2
++    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(1u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    extents.clear();
++
++    // 10. snap1 -> snap2
++    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap1", 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(1u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    extents.clear();
++
++    // 11. snap2 -> snap2
++    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap2", 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    // 12. snap3 -> snap2
++    ASSERT_EQ(-EINVAL, rbd_diff_iterate2(image, "snap3", 0, size, true,
++                                         whole_object, vector_cb, &extents));
++
++    ASSERT_NO_FATAL_FAILURE(validate_object_map(image));
++    ASSERT_EQ(0, rbd_snap_set(image, "snap1"));
++
++    // 13. beginning of time -> snap1
++    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    // 14. snap1 -> snap1
++    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap1", 0, size, true, whole_object,
++                                   vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    // 15. snap2 -> snap1
++    ASSERT_EQ(-EINVAL, rbd_diff_iterate2(image, "snap2", 0, size, true,
++                                         whole_object, vector_cb, &extents));
++
++    // 16. snap3 -> snap1
++    ASSERT_EQ(-EINVAL, rbd_diff_iterate2(image, "snap3", 0, size, true,
++                                         whole_object, vector_cb, &extents));
++
++    ASSERT_NO_FATAL_FAILURE(validate_object_map(image));
++  }
++
++  void test_deterministic_pp(librbd::Image& image, uint64_t object_off,
++                             uint64_t len, uint64_t block_size) {
++    uint64_t off1 = 8 << 20;
++    uint64_t off2 = 16 << 20;
++    uint64_t size = 20 << 20;
++    uint64_t extent_len = round_up_to(object_off + len, block_size);
++
++    librbd::image_info_t info;
++    ASSERT_EQ(0, image.stat(info, sizeof(info)));
++    ASSERT_EQ(size, info.size);
++    ASSERT_EQ(5, info.num_objs);
++    ASSERT_EQ(4 << 20, info.obj_size);
++    ASSERT_EQ(22, info.order);
++
++    uint64_t object_size = 0;
++    if (whole_object) {
++      object_size = 1 << info.order;
++    }
++
++    std::vector<diff_extent> extents;
++    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    ASSERT_EQ(-ENOENT, image.diff_iterate2("snap1", 0, size, true,
++                                           whole_object, vector_cb, &extents));
++
++    ASSERT_EQ(0, image.snap_create("snap1"));
++
++    ceph::bufferlist bl;
++    bl.append(std::string(len, '1'));
++    ASSERT_EQ(len, image.write(off1 + object_off, len, bl));
++    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(1u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    extents.clear();
++
++    ASSERT_EQ(0, image.snap_create("snap2"));
++
++    ASSERT_EQ(len, image.write(off2 + object_off, len, bl));
++    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(2u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
++    extents.clear();
++
++    ASSERT_EQ(0, image.snap_create("snap3"));
++
++    // 1. beginning of time -> HEAD
++    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(2u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
++    extents.clear();
++
++    // 2. snap1 -> HEAD
++    ASSERT_EQ(0, image.diff_iterate2("snap1", 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(2u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
++    extents.clear();
++
++    // 3. snap2 -> HEAD
++    ASSERT_EQ(0, image.diff_iterate2("snap2", 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(1u, extents.size());
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[0]);
++    extents.clear();
++
++    // 4. snap3 -> HEAD
++    ASSERT_EQ(0, image.diff_iterate2("snap3", 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    ASSERT_NO_FATAL_FAILURE(validate_object_map(image));
++    ASSERT_EQ(0, image.snap_set("snap3"));
++
++    // 5. beginning of time -> snap3
++    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(2u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
++    extents.clear();
++
++    // 6. snap1 -> snap3
++    ASSERT_EQ(0, image.diff_iterate2("snap1", 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(2u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
++    extents.clear();
++
++    // 7. snap2 -> snap3
++    ASSERT_EQ(0, image.diff_iterate2("snap2", 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(1u, extents.size());
++    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[0]);
++    extents.clear();
++
++    // 8. snap3 -> snap3
++    ASSERT_EQ(0, image.diff_iterate2("snap3", 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    ASSERT_NO_FATAL_FAILURE(validate_object_map(image));
++    ASSERT_EQ(0, image.snap_set("snap2"));
++
++    // 9. beginning of time -> snap2
++    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(1u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    extents.clear();
++
++    // 10. snap1 -> snap2
++    ASSERT_EQ(0, image.diff_iterate2("snap1", 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(1u, extents.size());
++    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
++    extents.clear();
++
++    // 11. snap2 -> snap2
++    ASSERT_EQ(0, image.diff_iterate2("snap2", 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    // 12. snap3 -> snap2
++    ASSERT_EQ(-EINVAL, image.diff_iterate2("snap3", 0, size, true,
++                                           whole_object, vector_cb, &extents));
++
++    ASSERT_NO_FATAL_FAILURE(validate_object_map(image));
++    ASSERT_EQ(0, image.snap_set("snap1"));
++
++    // 13. beginning of time -> snap1
++    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    // 14. snap1 -> snap1
++    ASSERT_EQ(0, image.diff_iterate2("snap1", 0, size, true, whole_object,
++                                     vector_cb, &extents));
++    ASSERT_EQ(0u, extents.size());
++
++    // 15. snap2 -> snap1
++    ASSERT_EQ(-EINVAL, image.diff_iterate2("snap2", 0, size, true,
++                                           whole_object, vector_cb, &extents));
++
++    // 16. snap3 -> snap1
++    ASSERT_EQ(-EINVAL, image.diff_iterate2("snap3", 0, size, true,
++                                           whole_object, vector_cb, &extents));
++
++    ASSERT_NO_FATAL_FAILURE(validate_object_map(image));
++  }
++};
++
++struct Exact {
++  static constexpr bool whole_object = false;
++};
++
++struct WholeObject {
++  static constexpr bool whole_object = true;
++};
++
++using DiffIterateDeterministicTestTypes = ::testing::Types<Exact, WholeObject>;
++TYPED_TEST_SUITE(DiffIterateDeterministicTest, DiffIterateDeterministicTestTypes);
++
++TYPED_TEST(DiffIterateDeterministicTest, Basic)
++{
++  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
++
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic(0, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic((1 << 20) - 256, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic((1 << 20) - 128, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic(1 << 20, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic((4 << 20) - 256, 256));
++}
++
++TYPED_TEST(DiffIterateDeterministicTest, BasicPP)
++{
++  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
++
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_pp(0, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_pp((3 << 20) - 2, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_pp((3 << 20) - 1, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_pp(3 << 20, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_pp((4 << 20) - 2, 2));
++}
++
++#ifdef HAVE_LIBCRYPTSETUP
++
++TYPED_TEST(DiffIterateDeterministicTest, LUKS1)
++{
++  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
++  REQUIRE(!is_feature_enabled(RBD_FEATURE_JOURNALING));
++
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1(0, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1((1 << 20) - 256, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1((1 << 20) - 128, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1(1 << 20, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1((4 << 20) - 256, 256));
++}
++
++TYPED_TEST(DiffIterateDeterministicTest, LUKS1PP)
++{
++  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
++  REQUIRE(!is_feature_enabled(RBD_FEATURE_JOURNALING));
++
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1_pp(0, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1_pp((3 << 20) - 2, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1_pp((3 << 20) - 1, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1_pp(3 << 20, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1_pp((4 << 20) - 2, 2));
++}
++
++TYPED_TEST(DiffIterateDeterministicTest, LUKS2)
++{
++  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
++  REQUIRE(!is_feature_enabled(RBD_FEATURE_JOURNALING));
++
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2(0, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2((1 << 20) - 256, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2((1 << 20) - 128, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2(1 << 20, 256));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2((4 << 20) - 256, 256));
++}
++
++TYPED_TEST(DiffIterateDeterministicTest, LUKS2PP)
++{
++  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
++  REQUIRE(!is_feature_enabled(RBD_FEATURE_JOURNALING));
++
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2_pp(0, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2_pp((3 << 20) - 2, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2_pp((3 << 20) - 1, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2_pp(3 << 20, 2));
++  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2_pp((4 << 20) - 2, 2));
++}
++
++#endif // HAVE_LIBCRYPTSETUP
+diff --git a/src/test/librbd/test_librbd.cc b/src/test/librbd/test_librbd.cc
+index 95d0373ee56f..0fa7899f3f2f 100644
+--- a/src/test/librbd/test_librbd.cc
++++ b/src/test/librbd/test_librbd.cc
+@@ -5933,436 +5933,6 @@ template <typename T>
+ class DiffIterateTest : public TestLibRBD {
+ public:
+   static const uint8_t whole_object = T::whole_object;
+-
+-  void test_deterministic(uint64_t object_off, uint64_t len) {
+-    rados_ioctx_t ioctx;
+-    ASSERT_EQ(0, rados_ioctx_create(_cluster, m_pool_name.c_str(), &ioctx));
+-
+-    rbd_image_t image;
+-    int order = 22;
+-    std::string name = this->get_temp_image_name();
+-    ASSERT_EQ(0, create_image(ioctx, name.c_str(), 20 << 20, &order));
+-    ASSERT_EQ(0, rbd_open(ioctx, name.c_str(), &image, NULL));
+-    test_deterministic(image, object_off, len, 1);
+-
+-    ASSERT_EQ(0, rbd_close(image));
+-    rados_ioctx_destroy(ioctx);
+-  }
+-
+-  void test_deterministic_pp(uint64_t object_off, uint64_t len) {
+-    librados::IoCtx ioctx;
+-    ASSERT_EQ(0, _rados.ioctx_create(m_pool_name.c_str(), ioctx));
+-
+-    librbd::RBD rbd;
+-    librbd::Image image;
+-    int order = 22;
+-    std::string name = this->get_temp_image_name();
+-    ASSERT_EQ(0, create_image_pp(rbd, ioctx, name.c_str(), 20 << 20, &order));
+-    ASSERT_EQ(0, rbd.open(ioctx, image, name.c_str(), NULL));
+-    test_deterministic_pp(image, object_off, len, 1);
+-  }
+-
+-#ifdef HAVE_LIBCRYPTSETUP
+-
+-  void test_deterministic_luks1(uint64_t object_off, uint64_t len) {
+-    rados_ioctx_t ioctx;
+-    ASSERT_EQ(0, rados_ioctx_create(_cluster, m_pool_name.c_str(), &ioctx));
+-
+-    rbd_image_t image;
+-    int order = 22;
+-    std::string name = this->get_temp_image_name();
+-    ASSERT_EQ(0, create_image(ioctx, name.c_str(), 24 << 20, &order));
+-    ASSERT_EQ(0, rbd_open(ioctx, name.c_str(), &image, NULL));
+-    rbd_encryption_luks1_format_options_t fopts = {
+-        RBD_ENCRYPTION_ALGORITHM_AES256, "some passphrase", 15};
+-    ASSERT_EQ(0, rbd_encryption_format(image, RBD_ENCRYPTION_FORMAT_LUKS1,
+-                                       &fopts, sizeof(fopts)));
+-    test_deterministic(image, object_off, len, 512);
+-
+-    ASSERT_EQ(0, rbd_close(image));
+-    rados_ioctx_destroy(ioctx);
+-  }
+-
+-  void test_deterministic_luks1_pp(uint64_t object_off, uint64_t len) {
+-    librados::IoCtx ioctx;
+-    ASSERT_EQ(0, _rados.ioctx_create(m_pool_name.c_str(), ioctx));
+-
+-    librbd::RBD rbd;
+-    librbd::Image image;
+-    int order = 22;
+-    std::string name = this->get_temp_image_name();
+-    ASSERT_EQ(0, create_image_pp(rbd, ioctx, name.c_str(), 24 << 20, &order));
+-    ASSERT_EQ(0, rbd.open(ioctx, image, name.c_str(), NULL));
+-    librbd::encryption_luks1_format_options_t fopts = {
+-        RBD_ENCRYPTION_ALGORITHM_AES256, "some passphrase"};
+-    ASSERT_EQ(0, image.encryption_format(RBD_ENCRYPTION_FORMAT_LUKS1, &fopts,
+-                                         sizeof(fopts)));
+-    test_deterministic_pp(image, object_off, len, 512);
+-  }
+-
+-  void test_deterministic_luks2(uint64_t object_off, uint64_t len) {
+-    rados_ioctx_t ioctx;
+-    ASSERT_EQ(0, rados_ioctx_create(_cluster, m_pool_name.c_str(), &ioctx));
+-
+-    rbd_image_t image;
+-    int order = 22;
+-    std::string name = this->get_temp_image_name();
+-    ASSERT_EQ(0, create_image(ioctx, name.c_str(), 36 << 20, &order));
+-    ASSERT_EQ(0, rbd_open(ioctx, name.c_str(), &image, NULL));
+-    rbd_encryption_luks2_format_options_t fopts = {
+-        RBD_ENCRYPTION_ALGORITHM_AES256, "some passphrase", 15};
+-    ASSERT_EQ(0, rbd_encryption_format(image, RBD_ENCRYPTION_FORMAT_LUKS2,
+-                                       &fopts, sizeof(fopts)));
+-    test_deterministic(image, object_off, len, 4096);
+-
+-    ASSERT_EQ(0, rbd_close(image));
+-    rados_ioctx_destroy(ioctx);
+-  }
+-
+-  void test_deterministic_luks2_pp(uint64_t object_off, uint64_t len) {
+-    librados::IoCtx ioctx;
+-    ASSERT_EQ(0, _rados.ioctx_create(m_pool_name.c_str(), ioctx));
+-
+-    librbd::RBD rbd;
+-    librbd::Image image;
+-    int order = 22;
+-    std::string name = this->get_temp_image_name();
+-    ASSERT_EQ(0, create_image_pp(rbd, ioctx, name.c_str(), 36 << 20, &order));
+-    ASSERT_EQ(0, rbd.open(ioctx, image, name.c_str(), NULL));
+-    librbd::encryption_luks2_format_options_t fopts = {
+-        RBD_ENCRYPTION_ALGORITHM_AES256, "some passphrase"};
+-    ASSERT_EQ(0, image.encryption_format(RBD_ENCRYPTION_FORMAT_LUKS2, &fopts,
+-                                         sizeof(fopts)));
+-    test_deterministic_pp(image, object_off, len, 4096);
+-  }
+-
+-#endif // HAVE_LIBCRYPTSETUP
+-
+-private:
+-  void test_deterministic(rbd_image_t image, uint64_t object_off,
+-                          uint64_t len, uint64_t block_size) {
+-    uint64_t off1 = 0;
+-    uint64_t off2 = 4 << 20;
+-    uint64_t size = 20 << 20;
+-    uint64_t extent_len = round_up_to(object_off + len, block_size);
+-
+-    rbd_image_info_t info;
+-    ASSERT_EQ(0, rbd_stat(image, &info, sizeof(info)));
+-    ASSERT_EQ(size, info.size);
+-    ASSERT_EQ(5, info.num_objs);
+-    ASSERT_EQ(4 << 20, info.obj_size);
+-    ASSERT_EQ(22, info.order);
+-
+-    uint64_t object_size = 0;
+-    if (whole_object) {
+-      object_size = 1 << info.order;
+-    }
+-
+-    std::vector<diff_extent> extents;
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    ASSERT_EQ(-ENOENT, rbd_diff_iterate2(image, "snap1", 0, size, true,
+-                                         whole_object, vector_iterate_cb,
+-                                         &extents));
+-
+-    ASSERT_EQ(0, rbd_snap_create(image, "snap1"));
+-
+-    std::string buf(len, '1');
+-    ASSERT_EQ(len, rbd_write(image, off1 + object_off, len, buf.data()));
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(1u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    extents.clear();
+-
+-    ASSERT_EQ(0, rbd_snap_create(image, "snap2"));
+-
+-    ASSERT_EQ(len, rbd_write(image, off2 + object_off, len, buf.data()));
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(2u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
+-    extents.clear();
+-
+-    ASSERT_EQ(0, rbd_snap_create(image, "snap3"));
+-
+-    // 1. beginning of time -> HEAD
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(2u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
+-    extents.clear();
+-
+-    // 2. snap1 -> HEAD
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap1", 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(2u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
+-    extents.clear();
+-
+-    // 3. snap2 -> HEAD
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap2", 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(1u, extents.size());
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[0]);
+-    extents.clear();
+-
+-    // 4. snap3 -> HEAD
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap3", 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    ASSERT_PASSED(validate_object_map, image);
+-    ASSERT_EQ(0, rbd_snap_set(image, "snap3"));
+-
+-    // 5. beginning of time -> snap3
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(2u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
+-    extents.clear();
+-
+-    // 6. snap1 -> snap3
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap1", 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(2u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
+-    extents.clear();
+-
+-    // 7. snap2 -> snap3
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap2", 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(1u, extents.size());
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[0]);
+-    extents.clear();
+-
+-    // 8. snap3 -> snap3
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap3", 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    ASSERT_PASSED(validate_object_map, image);
+-    ASSERT_EQ(0, rbd_snap_set(image, "snap2"));
+-
+-    // 9. beginning of time -> snap2
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(1u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    extents.clear();
+-
+-    // 10. snap1 -> snap2
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap1", 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(1u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    extents.clear();
+-
+-    // 11. snap2 -> snap2
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap2", 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    // 12. snap3 -> snap2
+-    ASSERT_EQ(-EINVAL, rbd_diff_iterate2(image, "snap3", 0, size, true,
+-                                         whole_object, vector_iterate_cb,
+-                                         &extents));
+-
+-    ASSERT_PASSED(validate_object_map, image);
+-    ASSERT_EQ(0, rbd_snap_set(image, "snap1"));
+-
+-    // 13. beginning of time -> snap1
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, NULL, 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    // 14. snap1 -> snap1
+-    ASSERT_EQ(0, rbd_diff_iterate2(image, "snap1", 0, size, true, whole_object,
+-                                   vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    // 15. snap2 -> snap1
+-    ASSERT_EQ(-EINVAL, rbd_diff_iterate2(image, "snap2", 0, size, true,
+-                                         whole_object, vector_iterate_cb,
+-                                         &extents));
+-
+-    // 16. snap3 -> snap1
+-    ASSERT_EQ(-EINVAL, rbd_diff_iterate2(image, "snap3", 0, size, true,
+-                                         whole_object, vector_iterate_cb,
+-                                         &extents));
+-
+-    ASSERT_PASSED(validate_object_map, image);
+-  }
+-
+-  void test_deterministic_pp(librbd::Image& image, uint64_t object_off,
+-                             uint64_t len, uint64_t block_size) {
+-    uint64_t off1 = 8 << 20;
+-    uint64_t off2 = 16 << 20;
+-    uint64_t size = 20 << 20;
+-    uint64_t extent_len = round_up_to(object_off + len, block_size);
+-
+-    librbd::image_info_t info;
+-    ASSERT_EQ(0, image.stat(info, sizeof(info)));
+-    ASSERT_EQ(size, info.size);
+-    ASSERT_EQ(5, info.num_objs);
+-    ASSERT_EQ(4 << 20, info.obj_size);
+-    ASSERT_EQ(22, info.order);
+-
+-    uint64_t object_size = 0;
+-    if (whole_object) {
+-      object_size = 1 << info.order;
+-    }
+-
+-    std::vector<diff_extent> extents;
+-    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    ASSERT_EQ(-ENOENT, image.diff_iterate2("snap1", 0, size, true,
+-                                           whole_object, vector_iterate_cb,
+-                                           &extents));
+-
+-    ASSERT_EQ(0, image.snap_create("snap1"));
+-
+-    ceph::bufferlist bl;
+-    bl.append(std::string(len, '1'));
+-    ASSERT_EQ(len, image.write(off1 + object_off, len, bl));
+-    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(1u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    extents.clear();
+-
+-    ASSERT_EQ(0, image.snap_create("snap2"));
+-
+-    ASSERT_EQ(len, image.write(off2 + object_off, len, bl));
+-    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(2u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
+-    extents.clear();
+-
+-    ASSERT_EQ(0, image.snap_create("snap3"));
+-
+-    // 1. beginning of time -> HEAD
+-    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(2u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
+-    extents.clear();
+-
+-    // 2. snap1 -> HEAD
+-    ASSERT_EQ(0, image.diff_iterate2("snap1", 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(2u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
+-    extents.clear();
+-
+-    // 3. snap2 -> HEAD
+-    ASSERT_EQ(0, image.diff_iterate2("snap2", 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(1u, extents.size());
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[0]);
+-    extents.clear();
+-
+-    // 4. snap3 -> HEAD
+-    ASSERT_EQ(0, image.diff_iterate2("snap3", 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    ASSERT_PASSED(validate_object_map, image);
+-    ASSERT_EQ(0, image.snap_set("snap3"));
+-
+-    // 5. beginning of time -> snap3
+-    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(2u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
+-    extents.clear();
+-
+-    // 6. snap1 -> snap3
+-    ASSERT_EQ(0, image.diff_iterate2("snap1", 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(2u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[1]);
+-    extents.clear();
+-
+-    // 7. snap2 -> snap3
+-    ASSERT_EQ(0, image.diff_iterate2("snap2", 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(1u, extents.size());
+-    ASSERT_EQ(diff_extent(off2, extent_len, true, object_size), extents[0]);
+-    extents.clear();
+-
+-    // 8. snap3 -> snap3
+-    ASSERT_EQ(0, image.diff_iterate2("snap3", 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    ASSERT_PASSED(validate_object_map, image);
+-    ASSERT_EQ(0, image.snap_set("snap2"));
+-
+-    // 9. beginning of time -> snap2
+-    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(1u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    extents.clear();
+-
+-    // 10. snap1 -> snap2
+-    ASSERT_EQ(0, image.diff_iterate2("snap1", 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(1u, extents.size());
+-    ASSERT_EQ(diff_extent(off1, extent_len, true, object_size), extents[0]);
+-    extents.clear();
+-
+-    // 11. snap2 -> snap2
+-    ASSERT_EQ(0, image.diff_iterate2("snap2", 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    // 12. snap3 -> snap2
+-    ASSERT_EQ(-EINVAL, image.diff_iterate2("snap3", 0, size, true,
+-                                           whole_object, vector_iterate_cb,
+-                                           &extents));
+-
+-    ASSERT_PASSED(validate_object_map, image);
+-    ASSERT_EQ(0, image.snap_set("snap1"));
+-
+-    // 13. beginning of time -> snap1
+-    ASSERT_EQ(0, image.diff_iterate2(NULL, 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    // 14. snap1 -> snap1
+-    ASSERT_EQ(0, image.diff_iterate2("snap1", 0, size, true, whole_object,
+-                                     vector_iterate_cb, &extents));
+-    ASSERT_EQ(0u, extents.size());
+-
+-    // 15. snap2 -> snap1
+-    ASSERT_EQ(-EINVAL, image.diff_iterate2("snap2", 0, size, true,
+-                                           whole_object, vector_iterate_cb,
+-                                           &extents));
+-
+-    // 16. snap3 -> snap1
+-    ASSERT_EQ(-EINVAL, image.diff_iterate2("snap3", 0, size, true,
+-                                           whole_object, vector_iterate_cb,
+-                                           &extents));
+-
+-    ASSERT_PASSED(validate_object_map, image);
+-  }
+ };
+ 
+ template <bool _whole_object>
+@@ -6423,80 +5993,6 @@ TYPED_TEST(DiffIterateTest, DiffIterate)
+   ioctx.close();
+ }
+ 
+-TYPED_TEST(DiffIterateTest, DiffIterateDeterministic)
+-{
+-  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
+-
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic(0, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic((1 << 20) - 256, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic((1 << 20) - 128, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic(1 << 20, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic((4 << 20) - 256, 256));
+-}
+-
+-TYPED_TEST(DiffIterateTest, DiffIterateDeterministicPP)
+-{
+-  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
+-
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_pp(0, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_pp((3 << 20) - 2, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_pp((3 << 20) - 1, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_pp(3 << 20, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_pp((4 << 20) - 2, 2));
+-}
+-
+-#ifdef HAVE_LIBCRYPTSETUP
+-
+-TYPED_TEST(DiffIterateTest, DiffIterateDeterministicLUKS1)
+-{
+-  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
+-  REQUIRE(!is_feature_enabled(RBD_FEATURE_JOURNALING));
+-
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1(0, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1((1 << 20) - 256, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1((1 << 20) - 128, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1(1 << 20, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1((4 << 20) - 256, 256));
+-}
+-
+-TYPED_TEST(DiffIterateTest, DiffIterateDeterministicLUKS1PP)
+-{
+-  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
+-  REQUIRE(!is_feature_enabled(RBD_FEATURE_JOURNALING));
+-
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1_pp(0, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1_pp((3 << 20) - 2, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1_pp((3 << 20) - 1, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1_pp(3 << 20, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks1_pp((4 << 20) - 2, 2));
+-}
+-
+-TYPED_TEST(DiffIterateTest, DiffIterateDeterministicLUKS2)
+-{
+-  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
+-  REQUIRE(!is_feature_enabled(RBD_FEATURE_JOURNALING));
+-
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2(0, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2((1 << 20) - 256, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2((1 << 20) - 128, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2(1 << 20, 256));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2((4 << 20) - 256, 256));
+-}
+-
+-TYPED_TEST(DiffIterateTest, DiffIterateDeterministicLUKS2PP)
+-{
+-  REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
+-  REQUIRE(!is_feature_enabled(RBD_FEATURE_JOURNALING));
+-
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2_pp(0, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2_pp((3 << 20) - 2, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2_pp((3 << 20) - 1, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2_pp(3 << 20, 2));
+-  EXPECT_NO_FATAL_FAILURE(this->test_deterministic_luks2_pp((4 << 20) - 2, 2));
+-}
+-
+-#endif // HAVE_LIBCRYPTSETUP
+-
+ TYPED_TEST(DiffIterateTest, DiffIterateDiscard)
+ {
+   REQUIRE(!is_feature_enabled(RBD_FEATURE_STRIPINGV2));
+diff --git a/src/test/librbd/test_main.cc b/src/test/librbd/test_main.cc
+index f871a4e513b3..dc3a66ef5221 100644
+--- a/src/test/librbd/test_main.cc
++++ b/src/test/librbd/test_main.cc
+@@ -12,6 +12,7 @@
+ extern void register_test_librbd();
+ #ifdef TEST_LIBRBD_INTERNALS
+ extern void register_test_deep_copy();
++extern void register_test_diff_iterate();
+ extern void register_test_encryption();
+ extern void register_test_groups();
+ extern void register_test_image_watcher();
+@@ -34,6 +35,7 @@ int main(int argc, char **argv)
+   register_test_librbd();
+ #ifdef TEST_LIBRBD_INTERNALS
+   register_test_deep_copy();
++  register_test_diff_iterate();
+   register_test_encryption();
+   register_test_groups();
+   register_test_image_watcher();

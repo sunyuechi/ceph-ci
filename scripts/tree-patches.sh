@@ -11,18 +11,16 @@ TREE_PATCHES=(
     1004-pmdk-riscv64-use-daos-stack.patch
 	# https://github.com/ceph/ceph/pull/69519
 	1024-pybind-rbd-rgw-place-nogil-after-the-exception-speci.patch
-
 	# https://github.com/ceph/ceph/pull/69643
-	1039-open_image-fix.patch
-	1040-internal-api-test_Encryption.cc.patch
-	1041-test_DiffIterate.cc.patch
+	1039-make-run-rbd-unit-tests-faster.patch
 
 	# todo
 	1046-test-crimson-onode-shrink-synthetic-pool-under-ASan.patch
 	1047-test-transaction_manager-shrink-working-set-under-AS.patch
 
-	# todo
+	# https://github.com/ceph/ceph/pull/70966
 	1060-osd-fix-misspelled-inject-ec-clear-command-names.patch
+	# https://github.com/ceph/ceph/pull/70965
 	1064-osd-avoid-inserting-empty-OI_ATTR-in-rollback_setatt.patch
 
 	# todo
@@ -44,11 +42,8 @@ TREE_PATCHES=(
 	1100-librbd-cache-pwl-join-tp_pwl-workers-before-derived-.patch
 	1101-librbd-cache-pwl-cancel-periodic-stats-timer-in-dest.patch
 
-	# todo
-	1103-rbd-mirror-fix-self-deadlock-in-ImageDeleter-on-bloc.patch
-
-	# todo
-	1105-rbd-mirror-avoid-deadlock-removing-local-journal-lis.patch
+	# https://github.com/ceph/ceph/pull/70959
+	1103-rbd-mirror-deadlock.patch
 
 	# todo
 	1107-rbd-mirror-reset-pagination-cursor-before-listing-mi.patch
@@ -78,9 +73,9 @@ TREE_PATCHES=(
 	1128-rgw-keystone-check-barbican-401-before-generic-error.patch
 	1129-rgw-posix-do-not-update-quota-stats-when-object-remo.patch
 
-	# https://github.com/ceph/ceph/pull/70149/changes
-	1131-osd-PeeringState-avoid-dereferencing-olog-end-in-pro.patch
+	# https://github.com/ceph/ceph/pull/70149
 	1132-osd-PeeringState-fix-proc_master_log-divergence-chec.patch
+
 	1133-test-osd-add-unittest-for-proc_master_log-wind-forwa.patch
 
 	# https://github.com/ceph/ceph/pull/70207
