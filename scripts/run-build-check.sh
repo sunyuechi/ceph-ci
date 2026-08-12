@@ -265,13 +265,19 @@ fi
 # CEPH_REF may be a branch/tag (fetchable) or a bare sha. GitHub rejects fetch-by-sha
 # ("couldn't find remote ref"); if the fetch fails but the commit already exists
 # locally (e.g. an incremental re-run pinned to the sha already checked out), use it.
+# Restricted to bare shas on purpose: successful runs check out FETCH_HEAD detached
+# and never advance local branch refs, so a branch name still resolves locally --
+# to whatever it pointed at when the clone was made. Falling back on it turns a
+# transient network failure into a silent build of months-old code (and fork patches
+# rebased onto current main then fail to apply against it).
 if git -C "${CEPH_SRC}" "${GIT_PROXY_ARGS[@]}" fetch --force "${CEPH_REPO}" "${CEPH_REF}"; then
     git -C "${CEPH_SRC}" checkout --force FETCH_HEAD
-elif git -C "${CEPH_SRC}" rev-parse --verify --quiet "${CEPH_REF}^{commit}" >/dev/null; then
+elif [[ "${CEPH_REF}" =~ ^[0-9a-f]{7,40}$ ]] &&
+     git -C "${CEPH_SRC}" rev-parse --verify --quiet "${CEPH_REF}^{commit}" >/dev/null; then
     echo "fetch of ${CEPH_REF} failed; commit exists locally, using local object"
     git -C "${CEPH_SRC}" checkout --force "${CEPH_REF}"
 else
-    echo "ERROR: cannot fetch ${CEPH_REF} and it is not present locally" >&2
+    echo "ERROR: cannot fetch ${CEPH_REF} from ${CEPH_REPO}" >&2
     exit 1
 fi
 # checkout --force only resets tracked files; it leaves untracked files (e.g. ones
