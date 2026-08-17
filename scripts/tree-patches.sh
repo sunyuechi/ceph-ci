@@ -37,8 +37,11 @@ TREE_PATCHES=(
 
 	1097-test-add-RISC-V-architecture-probe-tests.patch
 
-	# https://github.com/ceph/ceph/pull/69898
+	# https://github.com/ceph/ceph/pull/71083
 	1099-librbd-cache-pwl-fix-deadlock.patch
+	# https://github.com/ceph/ceph/pull/69898
+	1100-librbd-cache-pwl-arm-periodic-stats-timer-only-after.patch
+
 	# https://github.com/ceph/ceph/pull/70959
 	1103-rbd-mirror-deadlock.patch
 

@@ -1,0 +1,62 @@
+From 34efb6ea55e03ca21c12750aecc3628b0a4c1dd0 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Wed, 1 Jul 2026 20:26:31 -0700
+Subject: [PATCH] librbd/cache/pwl: arm periodic stats timer only after init
+ succeeds
+
+If an init step fails after pwl_init() armed the stats timer,
+InitRequest deletes the image cache without shut_down(), so the
+self-rearming timer callback keeps firing on the freed object.
+
+Arm the timer after write_image_cache_state() completes instead: on
+failure paths it is never armed, and any later teardown goes through
+shut_down(), which cancels it.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/librbd/cache/pwl/AbstractWriteLog.cc | 20 +++++++++++---------
+ 1 file changed, 11 insertions(+), 9 deletions(-)
+
+diff --git a/src/librbd/cache/pwl/AbstractWriteLog.cc b/src/librbd/cache/pwl/AbstractWriteLog.cc
+index 44ea8271b50..03de72c5a65 100644
+--- a/src/librbd/cache/pwl/AbstractWriteLog.cc
++++ b/src/librbd/cache/pwl/AbstractWriteLog.cc
+@@ -563,14 +563,6 @@ void AbstractWriteLog<I>::pwl_init(Context *on_finish, DeferredContexts &later)
+   // Start the thread
+   m_thread_pool.start();
+ 
+-  /* Do these after we drop lock */
+-  later.add(new LambdaContext([this](int r) {
+-      /* Log stats for the first time */
+-      periodic_stats();
+-      /* Arm periodic stats logging for the first time */
+-      std::lock_guard timer_locker(*m_timer_lock);
+-      arm_periodic_stats();
+-    }));
+   m_image_ctx.op_work_queue->queue(on_finish, 0);
+ }
+ 
+@@ -626,9 +618,19 @@ void AbstractWriteLog<I>::init(Context *on_finish) {
+   Context *ctx = new LambdaContext(
+     [this, on_finish](int r) {
+       if (r >= 0) {
++        Context *next_ctx = new LambdaContext(
++          [this, on_finish](int r) {
++            if (r >= 0) {
++              /* Arm periodic stats logging for the first time */
++              std::lock_guard timer_locker(*m_timer_lock);
++              arm_periodic_stats();
++            }
++            on_finish->complete(r);
++          });
++        next_ctx = util::create_async_context_callback(&m_work_queue, next_ctx);
+         std::unique_lock locker(m_lock);
+         update_image_cache_state();
+-        m_cache_state->write_image_cache_state(locker, on_finish);
++        m_cache_state->write_image_cache_state(locker, next_ctx);
+       } else {
+         on_finish->complete(r);
+       }
+-- 
+2.55.0
+
