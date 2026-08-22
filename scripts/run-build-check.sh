@@ -31,6 +31,16 @@
 #   CI_PROXY_PROBE_RETRIES  probe attempts before aborting as a network error (default set below)
 #   CI_PROXY_PROBE_DELAY    seconds between probe attempts (default set below)
 #   CI_NO_PROXY   hosts that bypass GIT_PROXY (default: openRuyi repos + loopback)
+#   CI_NET_RETRIES  times the STEPS run is retried when it died on an external git
+#                   fetch (gtest-parallel etc.) rather than on the build (default 1)
+#   CI_NET_RETRY_DELAY  max seconds to wait before such a retry (default set below);
+#                       the wait polls and returns as soon as fetching works again
+#   CI_NET_PROBE_INTERVAL  seconds between those polls (default set below)
+#   GIT_LOW_SPEED_LIMIT / GIT_LOW_SPEED_TIME  abort a git transfer that moves fewer
+#                 than LIMIT bytes/s for TIME seconds, host side and in-container
+#                 (defaults set below). Guards against a fetch stalling forever.
+#   CI_GIT_TRACE  1 (default) trace the container's git HTTP exchanges so an
+#                 external-fetch failure records the actual response; 0 to silence
 #   FLAKE_RETRIES ctest --repeat until-pass count for known flakes (default set below)
 #   CTEST_FAIL_OUTPUT_BYTES  bytes of tail output ctest dumps per failed test
 #                            (default 100000); raise to see more of a failure
@@ -173,6 +183,7 @@ BUILD_CONTAINER="ceph_build"
 _cleanup_on_signal() {
     trap - INT TERM                      # disarm so a second signal can't re-enter
     [ -n "${MEM_SAMPLER_PID:-}" ] && kill "${MEM_SAMPLER_PID}" 2>/dev/null || true
+    [ -n "${_steps_out:-}" ] && rm -f "${_steps_out}" || true
     echo "=== interrupted: killing build container ${BUILD_CONTAINER} ==="
     "${ENGINE}" kill "${BUILD_CONTAINER}" >/dev/null 2>&1 || true
     "${ENGINE}" rm -f "${BUILD_CONTAINER}" >/dev/null 2>&1 || true
@@ -236,6 +247,33 @@ echo "  GIT_PROXY='${GIT_PROXY}' (empty=direct)"
 # 1. ensure the openRuyi base image is present
 "${REPO_ROOT}/scripts/fetch-openruyi-image.sh"
 
+# Command-level git network config. Pinning the proxy here (empty = none) keeps a
+# stray host-global http.proxy from interfering; the low-speed guard aborts a
+# transfer that stalls. git ships no timeout by default, so a stalled fetch hangs
+# forever: on 2026-08-22 a `fetch main` that normally takes 2s sat in wait_woken
+# for 33 minutes with its TCP connection already gone, and only died when killed
+# by hand. Rate-based (not wall-clock) so a slow-but-moving clone is never cut off.
+# Never let git ask for credentials interactively. When github throttles anonymous
+# fetches it answers 401, and git then wants a username: with no tty it fails fast
+# ("No such device or address"), but this script sometimes runs on one, and there
+# git blocks in tty_read forever -- a `fetch main` sat at the Username prompt for
+# 33 minutes on 2026-08-22. Disabling the prompt makes both cases fail identically,
+# and the error still says "could not read Username", which CI_NET_FAIL_RE matches,
+# so the throttle is handled by the retry below instead of hanging the run.
+export GIT_TERMINAL_PROMPT=0
+
+GIT_LOW_SPEED_LIMIT="${GIT_LOW_SPEED_LIMIT:-1000}"
+GIT_LOW_SPEED_TIME="${GIT_LOW_SPEED_TIME:-60}"
+declare -a GIT_NET_ARGS=(
+    -c "http.lowSpeedLimit=${GIT_LOW_SPEED_LIMIT}"
+    -c "http.lowSpeedTime=${GIT_LOW_SPEED_TIME}"
+)
+if [ -n "${GIT_PROXY}" ]; then
+    GIT_NET_ARGS+=(-c "http.proxy=${GIT_PROXY}" -c "https.proxy=${GIT_PROXY}")
+else
+    GIT_NET_ARGS+=(-c "http.proxy=" -c "https.proxy=")
+fi
+
 # 2. clone or update the ceph source at CEPH_REF
 mkdir -p "${BASE}"
 if [ "${RESUME}" = 1 ]; then
@@ -246,15 +284,8 @@ if [ "${RESUME}" = 1 ]; then
     CEPH_SHA="$(git -C "${CEPH_SRC}" rev-parse --short HEAD)"
     echo "=== RESUME: reuse existing checkout, ceph @ ${CEPH_SHA} (skip clone/fetch/checkout/submodule/patch) ==="
 else
-# Pin git's proxy at command level (empty = none) so a stray host-global http.proxy can't interfere.
-declare -a GIT_PROXY_ARGS
-if [ -n "${GIT_PROXY}" ]; then
-    GIT_PROXY_ARGS=(-c "http.proxy=${GIT_PROXY}" -c "https.proxy=${GIT_PROXY}")
-else
-    GIT_PROXY_ARGS=(-c "http.proxy=" -c "https.proxy=")
-fi
 if [ ! -d "${CEPH_SRC}/.git" ]; then
-    git "${GIT_PROXY_ARGS[@]}" clone "${CEPH_REPO}" "${CEPH_SRC}"
+    git "${GIT_NET_ARGS[@]}" clone "${CEPH_REPO}" "${CEPH_SRC}"
 fi
 # Interrupted git invocations (power loss, Ctrl-C, killed ssh) leave *.lock files
 # that fail every later git write. Nothing else legitimately runs git on this
@@ -270,7 +301,7 @@ fi
 # to whatever it pointed at when the clone was made. Falling back on it turns a
 # transient network failure into a silent build of months-old code (and fork patches
 # rebased onto current main then fail to apply against it).
-if git -C "${CEPH_SRC}" "${GIT_PROXY_ARGS[@]}" fetch --force "${CEPH_REPO}" "${CEPH_REF}"; then
+if git -C "${CEPH_SRC}" "${GIT_NET_ARGS[@]}" fetch --force "${CEPH_REPO}" "${CEPH_REF}"; then
     git -C "${CEPH_SRC}" checkout --force FETCH_HEAD
 elif [[ "${CEPH_REF}" =~ ^[0-9a-f]{7,40}$ ]] &&
      git -C "${CEPH_SRC}" rev-parse --verify --quiet "${CEPH_REF}^{commit}" >/dev/null; then
@@ -288,7 +319,7 @@ fi
 git -C "${CEPH_SRC}" clean -fd
 # --force: re-checkout incomplete submodule worktrees (else configure fails). The
 # command-level -c http.proxy reaches child clones via GIT_CONFIG_PARAMETERS.
-git -C "${CEPH_SRC}" "${GIT_PROXY_ARGS[@]}" submodule update --init --force --recursive ${GIT_PROXY:+--jobs 4}
+git -C "${CEPH_SRC}" "${GIT_NET_ARGS[@]}" submodule update --init --force --recursive ${GIT_PROXY:+--jobs 4}
 CEPH_SHA="$(git -C "${CEPH_SRC}" rev-parse --short HEAD)"
 echo "checked out ceph ${CEPH_REF} @ ${CEPH_SHA}"
 
@@ -325,7 +356,7 @@ done
 #     out the bumped commit. Must run BEFORE the submodule patches below, whose
 #     --force would otherwise revert them.
 echo "re-syncing submodules to patched gitlinks"
-git -C "${CEPH_SRC}" "${GIT_PROXY_ARGS[@]}" submodule update --init --force --recursive ${GIT_PROXY:+--jobs 4}
+git -C "${CEPH_SRC}" "${GIT_NET_ARGS[@]}" submodule update --init --force --recursive ${GIT_PROXY:+--jobs 4}
 
 # 3b. submodule patches (fresh clone builds from patched source; no relink needed).
 for rel in "${SUBMODULE_PATCHES[@]}"; do
@@ -500,24 +531,50 @@ IFS=',' read -ra _steps <<< "${STEPS}"
 for s in "${_steps[@]}"; do EXEC+=(-e "$s"); done
 
 # Per-host git/go config shared by every container run (only meaningful when proxied).
-declare -a GIT_CFG_ARGS=()
+# In-container git config, injected via GIT_CONFIG_COUNT/KEY/VALUE. safe.directory
+# trusts the bind-mounted tree and the low-speed guard applies the same stall abort
+# as the host side -- both unconditional, since a proxy-less run stalls just as
+# easily. The github proxy entry is appended only when GIT_PROXY is set.
+declare -a GIT_CFG_ARGS=(
+    --extra="-eGIT_TERMINAL_PROMPT=0"   # same reason as the host-side export above
+    --extra="-eGIT_CONFIG_KEY_0=safe.directory"
+    --extra="-eGIT_CONFIG_VALUE_0=*"
+    --extra="-eGIT_CONFIG_KEY_1=http.lowSpeedLimit"
+    --extra="-eGIT_CONFIG_VALUE_1=${GIT_LOW_SPEED_LIMIT}"
+    --extra="-eGIT_CONFIG_KEY_2=http.lowSpeedTime"
+    --extra="-eGIT_CONFIG_VALUE_2=${GIT_LOW_SPEED_TIME}"
+)
+_git_cfg_count=3
 if [ -n "${GIT_PROXY}" ]; then
-    GIT_CFG_ARGS=(
-        --extra="-eGIT_CONFIG_COUNT=2"    # in-container git: github via proxy + trust bind-mount
-        --extra="-eGIT_CONFIG_KEY_0=http.https://github.com/.proxy"
-        --extra="-eGIT_CONFIG_VALUE_0=${GIT_PROXY}"
-        --extra="-eGIT_CONFIG_KEY_1=safe.directory"
-        --extra="-eGIT_CONFIG_VALUE_1=*"
+    GIT_CFG_ARGS+=(
+        --extra="-eGIT_CONFIG_KEY_3=http.https://github.com/.proxy"
+        --extra="-eGIT_CONFIG_VALUE_3=${GIT_PROXY}"
         --extra="-eGOPROXY=https://goproxy.cn,direct"   # openRuyi go defaults to GOPROXY=""
     )
+    _git_cfg_count=4
 fi
+GIT_CFG_ARGS+=(--extra="-eGIT_CONFIG_COUNT=${_git_cfg_count}")
 # The STEPS run inherits GIT_PROXY (a routable proxy) via podman's default *_proxy
 # forwarding so ctest's python venv/tox tests can pip-install their lint deps;
 # without a proxy pip hits pypi.org direct and ReadTimeouts. no_proxy (CI_NO_PROXY)
 # keeps the openRuyi repos + loopback direct; GIT_PROXY=direct exports nothing, so
 # the container stays proxy-free. In-container git reaches github via GIT_CONFIG above.
+# In-container git HTTP tracing. The gtest-parallel fetch fails intermittently with
+# "could not read Username" + "expected flush after ref listing" -- a pair neither a
+# plain 401 nor a truncated ref listing reproduces, and 51 post-hoc replays could not
+# trigger it. Trace headers (NO_DATA drops payloads) so the next occurrence carries
+# the actual exchange. Costs ~150 lines per fetch/clone on a green run.
+CI_GIT_TRACE="${CI_GIT_TRACE:-1}"
+declare -a GIT_TRACE_ARGS=()
+if [ "${CI_GIT_TRACE}" = 1 ]; then
+    GIT_TRACE_ARGS=(
+        --extra="-eGIT_TRACE_CURL=1"
+        --extra="-eGIT_TRACE_CURL_NO_DATA=1"
+    )
+fi
 declare -a NET_ARGS=(
     "${GIT_CFG_ARGS[@]}"
+    "${GIT_TRACE_ARGS[@]}"
 )
 
 declare -a SYSTEM_SITE_ARG=()
@@ -560,11 +617,135 @@ echo "  memory sampler pid=${MEM_SAMPLER_PID} -> ${MEM_LOG}"
 
 # A half-configured build/ (no generator file, e.g. an incremental reuse of a
 # build/ whose configure died last run) makes run-make.sh's configure bail out
-# instead of reusing it. Clear it so the STEPS run gets a fresh configure.
-if [ -d "${CEPH_SRC}/build" ] && [ ! -e "${CEPH_SRC}/build/build.ninja" ] && [ ! -e "${CEPH_SRC}/build/Makefile" ]; then
-    echo "=== removing half-configured build/ (no generator file) ==="
-    rm -rf "${CEPH_SRC}/build"
-fi
+# instead of reusing it. Clear it so the next configure starts fresh. Called again
+# before each configure retry, since a configure killed mid-FetchContent leaves
+# exactly such a tree behind.
+_clear_half_configured_build() {
+    if [ -d "${CEPH_SRC}/build" ] && [ ! -e "${CEPH_SRC}/build/build.ninja" ] \
+       && [ ! -e "${CEPH_SRC}/build/Makefile" ]; then
+        echo "=== removing half-configured build/ (no generator file) ==="
+        rm -rf "${CEPH_SRC}/build"
+    fi
+}
+
+# 4c.5 github throttles anonymous git pulls from this proxy's shared exit IP: the
+#      POST /git-upload-pack comes back 401 (www-authenticate: Basic realm="GitHub",
+#      body "Repository not found.") while a GET on info/refs still answers 200.
+#      Both phases that touch github are exposed -- configure pulls catch2 via
+#      CPMAddPackage/FetchContent, and every ninja invocation re-fetches
+#      gtest-parallel because ceph pins it at GIT_TAG "master" (a branch, not a sha).
+#      Retry either on that signature only; a real build or test failure must not be
+#      re-run. Window measured at 6-9 minutes (401 18:22:47 -> clear 18:29:02 on
+#      2026-08-22), so three attempts spaced up to 5 minutes cover it, and each wait
+#      polls and returns as soon as fetching works again.
+CI_NET_RETRIES="${CI_NET_RETRIES:-3}"
+CI_NET_RETRY_DELAY="${CI_NET_RETRY_DELAY:-300}"
+CI_NET_PROBE_INTERVAL="${CI_NET_PROBE_INTERVAL:-60}"
+# Throttled git: the 401 turns into a credential prompt that GIT_TERMINAL_PROMPT=0
+# refuses, the half-read advertisement, cmake's clone/update wrappers giving up.
+# None of these appear on a clean run.
+CI_NET_FAIL_RE="could not read Username for|expected flush after ref listing|Failed to clone repository|FAILED:.*_ext-stamp/[^ ]*-(update|download)"
+
+# Record what github actually answered, once per run -- the retry may well succeed
+# and erase the evidence. A bare traced ls-remote needs no local checkout, so it
+# works for a configure failure (build/ may be gone) as well as a STEPS one.
+_capture_netfail_diag() {
+    local label="$1"
+    # label doubles as a filename component; keep spaces out of it
+    local diag="${BASE}/ci-log/$(basename "${_RUN_LOG}" -run.log)-netfail-${label// /-}.log"
+    echo "  capturing fetch diagnostics -> ${diag}"
+    # An empty GIT_PROXY must drop the -e flags entirely, not pass empty args.
+    local -a proxy_env=() proxy_cfg=()
+    if [ -n "${GIT_PROXY}" ]; then
+        proxy_env=(-ehttp_proxy="${GIT_PROXY}" -ehttps_proxy="${GIT_PROXY}")
+        proxy_cfg=(-eGIT_CONFIG_COUNT=1
+                   -eGIT_CONFIG_KEY_0=http.https://github.com/.proxy
+                   -eGIT_CONFIG_VALUE_0="${GIT_PROXY}")
+    fi
+    {
+        echo "== ${label} hit a throttled fetch at $(date '+%F %T'), proxy=${GIT_PROXY} =="
+        "${ENGINE}" run --rm --name=ceph_netfail_diag \
+            "${proxy_env[@]}" "${proxy_cfg[@]}" \
+            -eGIT_TRACE_CURL=1 -eGIT_TRACE_CURL_NO_DATA=1 -eGIT_TERMINAL_PROMPT=0 \
+            ceph-build:HEAD.openruyi bash -c '
+                git ls-remote --heads https://github.com/google/gtest-parallel.git master
+                echo "ls-remote-rc=$?"'
+    } > "${diag}" 2>&1 || true
+}
+
+# Wait for the throttle to lift, polling the path that actually fails: ls-remote
+# issues the POST /git-upload-pack that gets 401'd, whereas a GET on info/refs
+# answers 200 right through the throttle and would report "recovered" while every
+# fetch still dies. Returns early so a short window costs less than the full delay.
+_wait_out_throttle() {
+    local waited=0
+    while [ "${waited}" -lt "${CI_NET_RETRY_DELAY}" ]; do
+        sleep "${CI_NET_PROBE_INTERVAL}"
+        waited=$((waited + CI_NET_PROBE_INTERVAL))
+        if git "${GIT_NET_ARGS[@]}" ls-remote --heads \
+               https://github.com/google/gtest-parallel.git master >/dev/null 2>&1; then
+            echo "  github fetch path usable again after ${waited}s"
+            return 0
+        fi
+        echo "  still throttled after ${waited}s (ls-remote still failing)"
+    done
+}
+
+# Run one bwc invocation, retrying it only when it died on a throttled fetch.
+# Sets RC. _steps_out is global so the signal trap can drop it.
+_net_retry() {
+    local label="$1"; shift
+    local attempt=0 flake
+    while :; do
+        # Capture a copy to match against; stdout still flows to run.log.
+        _steps_out="$(mktemp "${TMPDIR:-/tmp}/ceph-ci-run.XXXXXX")"
+        "$@" 2>&1 | tee "${_steps_out}"
+        RC=${PIPESTATUS[0]}
+        flake=0
+        if [ "${RC}" -ne 0 ] && grep -Eq "${CI_NET_FAIL_RE}" "${_steps_out}"; then
+            flake=1
+        fi
+        rm -f "${_steps_out}"; _steps_out=""
+        if [ "${flake}" -eq 0 ] || [ "${attempt}" -ge "${CI_NET_RETRIES}" ]; then
+            return "${RC}"
+        fi
+        attempt=$((attempt + 1))
+        echo "=== ${label} died on a throttled github fetch, not on the build;" \
+             "retry ${attempt}/${CI_NET_RETRIES}, waiting up to ${CI_NET_RETRY_DELAY}s ==="
+        [ "${attempt}" -eq 1 ] && _capture_netfail_diag "${label}"
+        _wait_out_throttle
+    done
+}
+
+# Configure pulls catch2 from github (CPMAddPackage), so it can hit the throttle
+# too. A failed attempt leaves a half-configured build/ that would make the next
+# configure bail out, hence the cleanup on every attempt.
+_run_configure() {
+    _clear_half_configured_build
+    python3 src/script/build-with-container.py \
+        --distro openruyi \
+        --container-engine "${ENGINE}" \
+        "${NET_ARGS[@]}" \
+        "${BUILD_TUNE_ARGS[@]}" \
+        --extra="-eCONFIGURE_ARGS=${CONFIGURE_ARGS}" \
+        "${SYSTEM_SITE_ARG[@]}" \
+        -e configure
+}
+
+_run_steps() {
+    python3 src/script/build-with-container.py \
+        --distro openruyi \
+        --container-engine "${ENGINE}" \
+        "${NET_ARGS[@]}" \
+        "${BUILD_TUNE_ARGS[@]}" \
+        "${TD_TMPFS_ARGS[@]}" \
+        "${SECCOMP_ARGS[@]}" \
+        --extra="-eCHECK_MAKEOPTS=${CHECK_MAKEOPTS}" \
+        --extra="-eMAX_PARALLEL_JOBS=${MAX_PARALLEL_JOBS}" \
+        --extra="-eCONFIGURE_ARGS=${CONFIGURE_ARGS}" \
+        "${SYSTEM_SITE_ARG[@]}" \
+        "${EXEC[@]}"
+}
 
 # 4c. Configure in a td-free container first, then run the authoritative build +
 #     ctest with the tmpfs td mounted. The split is required: the STEPS run mounts
@@ -589,30 +770,11 @@ if [ "${RESUME}" = 1 ]; then
     RC=0
 else
     echo "=== configure (td-free, so do_cmake sees no pre-created build/) ==="
-    python3 src/script/build-with-container.py \
-        --distro openruyi \
-        --container-engine "${ENGINE}" \
-        "${NET_ARGS[@]}" \
-        "${BUILD_TUNE_ARGS[@]}" \
-        --extra="-eCONFIGURE_ARGS=${CONFIGURE_ARGS}" \
-        "${SYSTEM_SITE_ARG[@]}" \
-        -e configure
-    RC=$?
+    _net_retry configure _run_configure
 fi
+
 if [ "${RC}" -eq 0 ]; then
-    python3 src/script/build-with-container.py \
-        --distro openruyi \
-        --container-engine "${ENGINE}" \
-        "${NET_ARGS[@]}" \
-        "${BUILD_TUNE_ARGS[@]}" \
-        "${TD_TMPFS_ARGS[@]}" \
-        "${SECCOMP_ARGS[@]}" \
-        --extra="-eCHECK_MAKEOPTS=${CHECK_MAKEOPTS}" \
-        --extra="-eMAX_PARALLEL_JOBS=${MAX_PARALLEL_JOBS}" \
-        --extra="-eCONFIGURE_ARGS=${CONFIGURE_ARGS}" \
-        "${SYSTEM_SITE_ARG[@]}" \
-        "${EXEC[@]}"
-    RC=$?
+    _net_retry "STEPS run" _run_steps
 fi
 set -e
 
